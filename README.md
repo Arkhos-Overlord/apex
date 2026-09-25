@@ -9,16 +9,16 @@
 
 ## Why APEX?
 
-GNOS and similar teaching harnesses are **plugins** — they only work inside specific AI agents (Codex, Claude Code). APEX is **standalone**. It works with any AI agent, any model, any provider. Your courses, progress, and learner state are stored as local JSON files. No vendor lock-in.
+APEX is **standalone**. It works with any AI agent, any model, any provider. Your courses, progress, and learner state are stored as local JSON files. No vendor lock-in.
 
-| Feature | APEX | GNOS |
+| Feature | APEX | Traditional Tools |
 |---|---|---|
-| **Deployment** | Standalone CLI + web app | Plugin for Codex/Claude only |
+| **Deployment** | Standalone CLI + web app | Plugin for specific agents only |
 | **Code execution** | Real sandboxed Python/JS with auto-grading | Static simulations only |
 | **Dashboard** | Interactive charts, knowledge graph, mastery tracking | Basic browser render |
 | **Adaptive learning** | Elo-style difficulty algorithm | Simple evidence tracking |
 | **Spaced repetition** | SM-2 algorithm | None |
-| **Teacher personas** | 4 AI personas with voice | Configurable SOUL.md |
+| **Teacher personas** | 4 AI personas with voice | Static profiles |
 | **Content formats** | SVG, code, TTS, PDF, markdown→exercise | Text, images, videos |
 | **Assessment** | Auto-generated MCQ, fill-in-blank, coding challenges | None |
 
@@ -211,4 +211,4 @@ Contributions welcome! The project is structured to be extensible:
 
 ## Acknowledgments
 
-Built as a standalone alternative to GNOS — a teaching harness for AI agents. APEX removes the plugin dependency and adds real code execution, adaptive learning, and interactive dashboards.
+Built as a standalone teaching platform for AI agents. APEX removes the plugin dependency and adds real code execution, adaptive learning, and interactive dashboards.
