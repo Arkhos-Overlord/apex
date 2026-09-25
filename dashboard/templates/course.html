@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Course: {{ course.title }} — APEX</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+  <!-- Top Navigation Bar -->
+  <nav class="topnav">
+    <div class="nav-brand">
+      <span class="brand-mark">◆</span>
+      <span class="brand-text">APEX</span>
+    </div>
+    <div class="nav-links">
+      <a href="/" class="nav-link">Dashboard</a>
+      <a href="/course/{{ course.id }}" class="nav-link active">{{ course.title }}</a>
+    </div>
+    <div class="nav-user">
+      <div class="user-avatar">AC</div>
+      <span class="user-name">Alice Chen</span>
+    </div>
+  </nav>
+
+  <!-- Main Content -->
+  <main class="course-main">
+    <!-- Breadcrumb -->
+    <div class="breadcrumb">
+      <a href="/">Dashboard</a>
+      <span>/</span>
+      <span>{{ course.title }}</span>
+    </div>
+
+    <!-- Course Header -->
+    <header class="course-header">
+      <div class="course-info">
+        <h1>{{ course.title }}</h1>
+        <p class="course-description">{{ course.description }}</p>
+        <div class="course-meta">
+          <span class="meta-badge">${{ course.duration_weeks }} weeks</span>
+          <span class="meta-badge">{{ course.modules|length }} modules</span>
+        </div>
+      </div>
+      <div class="course-actions">
+        <button class="btn btn-primary">Start Course</button>
+        <button class="btn btn-secondary">Resume</button>
+      </div>
+    </header>
+
+    <!-- Module Tree -->
+    <section class="card modules-card">
+      <h2>Course Modules</h2>
+      <div class="module-tree">
+        {% for module in course.modules %}
+        <div class="module-tree-node">
+          <div class="tree-toggle" onclick="this.classList.toggle('expanded')">
+            <span class="tree-arrow">▸</span>
+            <span class="tree-name">{{ module.title }}</span>
+            <span class="tree-count">{{ module.lessons }} lessons</span>
+          </div>
+          <div class="tree-children">
+            {% for lesson_num in range(1, module.lessons + 1) %}
+            <a href="/lesson/{{ course.id }}/lesson-{{ module.id }}-{{ lesson_num }}" class="tree-lesson">
+              <span class="lesson-status">○</span>
+              Lesson {{ lesson_num }}
+            </a>
+            {% endfor %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <!-- Side Panel: Progress Ring + Schedule -->
+    <aside class="course-sidebar">
+      <section class="card">
+        <h2>Course Progress</h2>
+        <p class="course-stat">60% completed — 18 of 30 lessons</p>
+        <div class="progress-bar-lg">
+          <div class="progress-bar-fill" style="width:60%"></div>
+        </div>
+      </section>
+      <section class="card">
+        <h2>Next Lesson</h2>
+        <div class="next-lesson-card">
+          <span class="next-lesson-label">Module 3: Functions</span>
+          <span class="next-lesson-title">Lesson 4: Higher-Order Functions</span>
+          <span class="next-lesson-meta">12 min • Intermediate</span>
+        </div>
+        <button class="btn btn-primary btn-full">Continue</button>
+      </section>
+    </aside>
+  </main>
+
+  <footer class="footer">
+    <p>APEX Dashboard — AI-Powered eXperiential Education</p>
+  </footer>
+
+  <script>
+    // Tree expand/collapse
+    document.querySelectorAll('.tree-toggle').forEach(el => {
+      el.addEventListener('click', () => {
+        const children = el.nextElementSibling;
+        if (children) {
+          const isHidden = children.style.display === 'none';
+          children.style.display = isHidden ? 'block' : 'none';
+          el.querySelector('.tree-arrow').textContent = isHidden ? '▾' : '▸';
+        }
+      });
+    });
+    // Hide all children initially
+    document.querySelectorAll('.tree-children').forEach(c => c.style.display = 'none');
+  </script>
+</body>
+</html>

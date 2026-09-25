@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>APEX - Learning Intelligence</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <aside class="sidebar">
+            <div class="logo">
+                <div class="logo-icon">⚡</div>
+                <div><h1>APEX</h1><span class="tagline">Learning Intelligence</span></div>
+            </div>
+            <div class="section-label">Analytics</div>
+            <nav>
+                <a data-tab="dashboard" class="active"><span class="nav-icon">📊</span><span>Dashboard</span></a>
+                <a data-tab="progress"><span class="nav-icon">📈</span><span>Progress</span></a>
+                <a data-tab="knowledge"><span class="nav-icon">🧠</span><span>Knowledge Graph</span></a>
+            </nav>
+            <div class="section-label">Courses</div>
+            <nav>
+                <a data-tab="courses"><span class="nav-icon">📚</span><span>Courses</span></a>
+                <a data-tab="mastery"><span class="nav-icon">🎯</span><span>Mastery</span></a>
+                <a data-tab="spaced"><span class="nav-icon">🔄</span><span>Spaced Repetition</span></a>
+            </nav>
+        </aside>
+        <main class="main-content">
+            <div class="topbar">
+                <h2 id="page-title">Dashboard</h2>
+                <div class="topbar-stats">
+                    <div class="stat-pill"><span class="stat-value" id="overall-mastery">--</span><span class="stat-label">Mastery</span></div>
+                    <div class="stat-pill"><span class="stat-value" id="streak">--</span><span class="stat-label">Streak</span></div>
+                    <div class="stat-pill"><span class="stat-value" id="hours">--</span><span class="stat-label">Hours</span></div>
+                </div>
+            </div>
+            <section class="panel active" id="panel-dashboard">
+                <div class="stat-row">
+                    <div class="stat-card"><div class="big-num" id="stat-courses">4</div><div class="label">Active Courses</div></div>
+                    <div class="stat-card"><div class="big-num" id="stat-topics">0</div><div class="label">Topics Covered</div></div>
+                    <div class="stat-card"><div class="big-num" id="stat-exercises">0</div><div class="label">Exercises Done</div></div>
+                    <div class="stat-card"><div class="big-num" id="stat-score">0%</div><div class="label">Avg Score</div></div>
+                </div>
+                <div class="panel-grid">
+                    <div class="chart-card"><h3>Weekly Activity</h3><p class="chart-desc">Hours spent learning this week</p><div class="chart-container"><canvas id="activity-chart"></canvas></div></div>
+                    <div class="chart-card"><h3>Mastery Overview</h3><p class="chart-desc">Progress across all courses</p><div class="chart-container"><canvas id="overview-chart"></canvas></div></div>
+                </div>
+            </section>
+            <section class="panel" id="panel-progress">
+                <div class="panel-grid">
+                    <div class="chart-card"><h3>Learning Heatmap</h3><p class="chart-desc">Time on task by day</p><div class="chart-container"><canvas id="heatmap-chart"></canvas></div></div>
+                    <div class="chart-card"><h3>Topic Breakdown</h3><p class="chart-desc">Mastery by topic</p><div class="chart-container"><canvas id="topic-chart"></canvas></div></div>
+                </div>
+            </section>
+            <section class="panel" id="panel-knowledge">
+                <div class="chart-card"><h3>Knowledge Graph</h3><p class="chart-desc">Concept relationships</p><canvas id="knowledge-graph-canvas" style="width:100%;height:400px;background:var(--bg-primary);border-radius:var(--radius-sm);"></canvas></div>
+            </section>
+            <section class="panel" id="panel-courses"><div id="courses-list"></div></section>
+            <section class="panel" id="panel-mastery">
+                <div class="chart-card"><h3>Real-Time Mastery Scores</h3><p class="chart-desc">Trend analysis</p><div class="chart-container"><canvas id="mastery-chart"></canvas></div></div>
+                <div class="chart-card" style="margin-top:20px;"><h3>Topic Mastery Breakdown</h3><div id="mastery-bars"></div></div>
+            </section>
+            <section class="panel" id="panel-spaced"><div id="spaced-list"></div></section>
+        </main>
+    </div>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

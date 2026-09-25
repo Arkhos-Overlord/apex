@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson — {{ lesson_slug }} — APEX</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <nav class="topnav">
+    <div class="nav-brand">
+      <span class="brand-mark">◆</span>
+      <span class="brand-text">APEX</span>
+    </div>
+    <div class="nav-links">
+      <a href="/" class="nav-link">Dashboard</a>
+      <a href="/course/{{ course.id }}" class="nav-link">{{ course.title }}</a>
+    </div>
+    <div class="nav-user">
+      <div class="user-avatar">AC</div>
+      <span class="user-name">Alice Chen</span>
+    </div>
+  </nav>
+
+  <main class="lesson-main">
+    <div class="breadcrumb">
+      <a href="/">Dashboard</a>
+      <span>/</span>
+      <a href="/course/{{ course.id }}">{{ course.title }}</a>
+      <span>/</span>
+      <span>{{ lesson_slug }}</span>
+    </div>
+
+    <div class="lesson-layout">
+      <!-- Lesson Content -->
+      <article class="card lesson-content">
+        <h1>{{ course.title }}</h1>
+        <div class="lesson-progress-bar">
+          <div class="progress-bar-fill" style="width:45%"></div>
+        </div>
+        <p class="lesson-progress-text">Lesson 4 of 6 — 45% complete</p>
+
+        <div class="lesson-body">
+          <h2>Higher-Order Functions</h2>
+          <p>
+            In Python, functions are first-class objects. This means you can pass them as arguments
+            to other functions, return them from functions, and assign them to variables.
+          </p>
+          <pre><code>def apply_twice(f, x):
+    return f(f(x))
+
+def double(x):
+    return x * 2
+
+print(apply_twice(double, 5))  # 20</code></pre>
+          <p>The <code>apply_twice</code> function is a <em>higher-order function</em> — ittakes another function as an argument.</p>
+        </div>
+
+        <div class="lesson-nav">
+          <button class="btn btn-secondary">← Previous</button>
+          <button class="btn btn-primary">Mark Complete</button>
+          <button class="btn btn-secondary">Next →</button>
+        </div>
+      </article>
+
+      <!-- Sidebar -->
+      <aside class="lesson-sidebar">
+        <section class="card">
+          <h3>Lesson Info</h3>
+          <div class="lesson-meta-list">
+            <div><span class="meta-label">Duration</span><span class="meta-value">12 min</span></div>
+            <div><span class="meta-label">Difficulty</span><span class="meta-value">Intermediate</span></div>
+            <div><span class="meta-label">Prerequisites</span><span class="meta-value">Functions, Loops</span></div>
+          </div>
+        </section>
+        <section class="card">
+          <h3>Keyboard Shortcuts</h3>
+          <div class="shortcut-list">
+            <kbd>Space</kbd> Play/Pause
+            <kbd>N</kbd> Next lesson
+            <kbd>P</kbd> Previous
+          </div>
+        </section>
+      </aside>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <p>APEX Dashboard — AI-Powered eXperiential Education</p>
+  </footer>
+</body>
+</html>
