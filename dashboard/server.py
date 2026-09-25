@@ -315,6 +315,13 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 # ---------------------------------------------------------------------------
 
 
+
+
+@app.get('/health')
+async def health_check():
+    return {'status': 'healthy', 'service': 'apex', 'version': '0.1.0'}
+
+
 @app.get("/")
 async def index(request: Request):
     return HTMLResponse(content=render_template("index.html", {"request": request}))

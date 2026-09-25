@@ -11,7 +11,7 @@ COPY pyproject.toml .
 
 # Install the package with all dependencies
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir ".[dev]" && \
+    pip install --no-cache-dir . && \
     pip install --no-cache-dir --no-deps -e .
 
 # Runtime stage
@@ -20,8 +20,7 @@ FROM python:3.11-slim AS runtime
 WORKDIR /app
 
 # Install runtime dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends && \
-    apt-get install -y --no-install-recommends curl && \
+RUN apt-get update && apt-get install -y --no-install-recommends curl && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy installed packages from builder
