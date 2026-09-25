@@ -663,3 +663,35 @@ MEDIUM PRIORITY:
 - [ ] Placeholder assertions in test_bkt.py
 - [ ] Dashboard JS uses Math.random() instead of API data
 - [ ] Dead dependencies (python-json-logger, possibly pydantic)
+
+
+================================================================================
+REVIEW BY qwen3.5:cloud (clone-based, UX-focused audit)
+================================================================================
+
+Found 17 issues across dashboard, CLI, architecture, Docker, and documentation.
+
+## HIGH PRIORITY
+1. Dashboard API key mismatch: server.py line 41 returns `courses` key but JS reads `progress.course_completions` — always undefined. Fix JS or API.
+2. schedule_review/next_review_date/get_due_reviews create fresh SpacedRepetition() each call — state never persists. Convenience wrappers are useless.
+3. 5 CLI tests import from cli.main instead of apex.cli.main — ModuleNotFoundError on all of them.
+4. No /health endpoint — Docker HEALTHCHECK always fails.
+
+## MEDIUM PRIORITY
+5. Dashboard JS uses Math.random() for heatmap and mastery bars — not API data.
+6. Knowledge graph canvas ignores the API endpoint entirely — renders hardcoded 8-node graph.
+7. Two LearnerState types with same name: Pydantic model in core vs dict alias in assessment. Confusing collision.
+8. Dockerfile CMD uses --reload in production. Should not use in production.
+9. pyproject.toml has no [project.optional-dependencies] but Dockerfile does pip install .[dev].
+10. docker-entrypoint.sh swallows db init errors with || true.
+11. REVIEWS.md contains a review of a DIFFERENT project (Flask + SQLAlchemy teacher platform) — misleading.
+12. course.html hardcodes "Alice Chen" and "60% completed" — no dynamic data binding.
+
+## LOW PRIORITY
+13. store.py uses __import__("pickle") instead of import pickle.
+14. generate_voice typo "Her pay TTS" (should be "Hermes TTS").
+15. generate_diagram try/except AttributeError both call dwg.tostring() — copy-paste error.
+16. CLI commands (teach, course, practice, progress) are all stubs printing fake data.
+17. Dockerfile runtime stage has no-op apt-get install with no packages.
+
+---
