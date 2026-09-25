@@ -1,0 +1,42 @@
+# Build context
+docker
+*.pyc
+*.pyo
+__pycache__
+*.egg-info
+dist
+build
+.venv
+venv
+.env
+.idea
+.vscode
+*.log
+.git
+.gitignore
+README.md
+docs
+tests
+*.md
+!Dockerfile
+!docker-compose.yml
+!docker-entrypoint.sh
+!pyproject.toml
+
+# Generated files
+apex/outputs
+*.db
+*.sqlite
+*.sqlite3
+
+# Development artifacts
+.coverage
+htmlcov
+.mypy_cache
+.ruff_cache
+.pytest_cache
+
+# Windows
+Thumbs.db
+desktop.ini
+~$*
