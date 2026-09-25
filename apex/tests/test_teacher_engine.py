@@ -5,9 +5,9 @@ from __future__ import annotations
 import pytest
 
 from apex.core import LearnerState
-from apex.teachers import LessonContent
 from apex.teachers import (
     TEACHER_PROFILES,
+    LessonContent,
     TeacherProfile,
     diagnose_errors,
     generate_socratic_questions,
@@ -182,7 +182,9 @@ class TestInstruct:
         guide = instruct("The Guide", "conditionals")
 
         # Mentor: curiosity and discovery
-        assert "question" in mentor.encouragement.lower() or "explore" in mentor.encouragement.lower()
+        assert (
+            "question" in mentor.encouragement.lower() or "explore" in mentor.encouragement.lower()
+        )
         # Drill: discipline and practice
         assert "practice" in drill.encouragement.lower() or "drill" in drill.encouragement.lower()
         # Guide: autonomy and resources
@@ -221,9 +223,15 @@ class TestInstructWithLearnerState:
         assert mentor_result.explanation != drill_result.explanation
 
         # Mentor: reflective, gentle
-        assert "think" in mentor_result.explanation.lower() or "expect" in mentor_result.explanation.lower()
+        assert (
+            "think" in mentor_result.explanation.lower()
+            or "expect" in mentor_result.explanation.lower()
+        )
         # Drill: direct, firm
-        assert "fix" in drill_result.explanation.lower() or "correct" in drill_result.explanation.lower()
+        assert (
+            "fix" in drill_result.explanation.lower()
+            or "correct" in drill_result.explanation.lower()
+        )
 
     def test_learner_state_fields_carried_through(self) -> None:
         state = LearnerState(
@@ -327,12 +335,16 @@ class TestDiagnoseErrors:
         # Guide: resource suggestion
         assert "resource" in guide_result.lower() or "check" in guide_result.lower()
         # Storyteller: narrative
-        assert "story" in storyteller_result.lower() or "twist" in storyteller_result.lower() or "chapter" in storyteller_result.lower()
+        assert (
+            "story" in storyteller_result.lower()
+            or "twist" in storyteller_result.lower()
+            or "chapter" in storyteller_result.lower()
+        )
 
     def test_mentor_error_correction_is_patient(self) -> None:
         teacher = get_teacher("The Mentor")
         result = diagnose_errors(teacher, ["Division by zero"])
-                # Mentor should be gentle and guiding
+        # Mentor should be gentle and guiding
         assert (
             "challenge" in result.lower()
             or "learning" in result.lower()

@@ -1,0 +1,16 @@
+id: py-hello
+title: Hello, Name
+skills: [io]
+difficulty: 1
+prompt: |
+  Read a name from standard input and print `Hello, <name>!`.
+starter: |
+  name = input()
+  # print the greeting
+tests:
+  - input: "Ada\n"
+    expected: "Hello, Ada!\n"
+    hidden: false
+  - input: "Grace\n"
+    expected: "Hello, Grace!\n"
+    hidden: true

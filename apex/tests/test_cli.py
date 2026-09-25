@@ -5,12 +5,10 @@ Mocks click and rich where needed to keep tests fast and isolated.
 
 from __future__ import annotations
 
-import json
-import os
 import sys
+from collections.abc import Generator
 from pathlib import Path
-from typing import Generator
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -19,12 +17,12 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from apex.cli.config import Config, _get_config_path, load_config, save_config  # noqa: E402
-
+from apex.cli.config import Config, _get_config_path, load_config, save_config
 
 # ---------------------------------------------------------------------------
 # config tests
 # ---------------------------------------------------------------------------
+
 
 class TestConfigModel:
     """Tests for the Config pydantic model."""
@@ -111,6 +109,7 @@ class TestLoadSaveConfig:
 # CLI command tests (mocked click + rich)
 # ---------------------------------------------------------------------------
 
+
 class TestTeachCommand:
     """Behaviour of the teach command."""
 
@@ -162,9 +161,8 @@ class TestPracticeCommand:
 
     def test_practice_runs(self) -> None:
         """practice command starts a session."""
-        from click.testing import CliRunner
-
         from cli.main import cli
+        from click.testing import CliRunner
 
         runner = CliRunner()
         result = runner.invoke(cli, ["practice"])
@@ -177,9 +175,8 @@ class TestProgressCommand:
 
     def test_progress_shows_table(self) -> None:
         """progress prints mastery summary."""
-        from click.testing import CliRunner
-
         from cli.main import cli
+        from click.testing import CliRunner
 
         runner = CliRunner()
         result = runner.invoke(cli, ["progress"])
@@ -193,9 +190,8 @@ class TestDashboardCommand:
 
     def test_dashboard_opens_browser(self) -> None:
         """dashboard calls webbrowser.open."""
-        from click.testing import CliRunner
-
         from cli.main import cli
+        from click.testing import CliRunner
 
         with patch("cli.commands.webbrowser.open") as mock_open:
             runner = CliRunner()
@@ -210,9 +206,8 @@ class TestCLIHelp:
 
     def test_help_text(self) -> None:
         """apex --help describes the tool."""
-        from click.testing import CliRunner
-
         from cli.main import cli
+        from click.testing import CliRunner
 
         runner = CliRunner()
         result = runner.invoke(cli, ["--help"])
@@ -223,9 +218,8 @@ class TestCLIHelp:
 
     def test_version(self) -> None:
         """apex --version returns 0.1.0."""
-        from click.testing import CliRunner
-
         from cli.main import cli
+        from click.testing import CliRunner
 
         runner = CliRunner()
         result = runner.invoke(cli, ["--version"])

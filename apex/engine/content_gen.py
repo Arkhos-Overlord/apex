@@ -488,8 +488,9 @@ def generate_pdf(content: str, template: str = "handout") -> str:
         return str(pdf_path)
     except Exception as exc:  # noqa: BLE001
         import warnings as _warnings
-        _warnings.warn(f'PDF generation failed: {exc}')
-        pdf_path.write_text(html_doc, encoding='utf-8')
+
+        _warnings.warn(f"PDF generation failed: {exc}")
+        pdf_path.write_text(html_doc, encoding="utf-8")
         return str(pdf_path)
 
     try:

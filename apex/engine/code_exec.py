@@ -6,12 +6,21 @@ test-case grading, and automated test-case generation from concept descriptions.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import platform
 import subprocess
 import tempfile
 import time
 from typing import Any
+
+# Optional: Protocol-based runner (imported lazily to keep existing API working
+# even if sandbox.py is not present).
+try:
+    from apex.sandbox import Limits, LocalPythonRunner
+except ImportError:
+    Limits = None
+    LocalPythonRunner = None
 
 # ---------------------------------------------------------------------------
 # Result type aliases
@@ -70,6 +79,25 @@ def run_code(
             f"Unsupported language: {language!r}. Supported: python, javascript.",
             exit_code=-1,
         )
+
+    # ---- Use the Protocol-based LocalPythonRunner when available ----
+    if LocalPythonRunner is not None and lang == "python":
+        limits = Limits(
+            timeout_s=float(timeout),
+            memory_mb=float(memory_limit_mb) if memory_limit_mb else None,
+        )
+        runner = LocalPythonRunner(limits=limits)
+        try:
+            result = asyncio.run(runner.run(source))
+            return {
+                "success": result.ok,
+                "output": result.stdout,
+                "error": result.stderr,
+                "exit_code": result.exit_code,
+                "execution_time": round(result.duration_ms / 1000, 4),
+            }
+        except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
+            return _failure(f"Runner error: {exc}", exit_code=-1)
 
     cmd = _build_command(source, lang, memory_limit_mb)
     t0 = time.perf_counter()

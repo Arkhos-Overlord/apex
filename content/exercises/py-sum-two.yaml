@@ -1,0 +1,19 @@
+id: py-sum-two
+title: Sum of Two Numbers
+skills: [io, arithmetic]
+difficulty: 1
+prompt: |
+  Read two integers, one per line, and print their sum.
+starter: |
+  a = input()
+  b = input()
+tests:
+  - input: "2\n3\n"
+    expected: "5\n"
+    hidden: false
+  - input: "-7\n7\n"
+    expected: "0\n"
+    hidden: true
+  - input: "1000000\n1\n"
+    expected: "1000001\n"
+    hidden: true

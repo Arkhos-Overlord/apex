@@ -1,0 +1,25 @@
+# APEX Skills
+# Each skill has an id, name, and optional prerequisites.
+
+- id: io
+  name: Input & Output
+
+- id: arithmetic
+  name: Arithmetic
+  prereqs: [io]
+
+- id: conditionals
+  name: Conditionals
+  prereqs: [arithmetic]
+
+- id: loops
+  name: Loops
+  prereqs: [conditionals]
+
+- id: functions
+  name: Functions
+  prereqs: [loops]
+
+- id: strings
+  name: String Manipulation
+  prereqs: [io]

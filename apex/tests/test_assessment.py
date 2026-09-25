@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+
 import pytest
 
 from apex.engine.assessment import (
@@ -14,7 +15,6 @@ from apex.engine.assessment import (
     next_review_date,
     schedule_review,
 )
-
 
 # ===================================================================
 # SpacedRepetition

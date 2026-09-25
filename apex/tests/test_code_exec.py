@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-
 from apex.engine.code_exec import generate_test_cases, grade_code, run_code
-
 
 # ---------------------------------------------------------------------------
 # run_code

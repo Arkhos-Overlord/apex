@@ -7,12 +7,10 @@ course navigation, and spaced-repetition schedules.
 from contextlib import asynccontextmanager
 from pathlib import Path
 from statistics import mean
-from fastapi.responses import HTMLResponse
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------
@@ -95,9 +93,11 @@ LEARNERS = {
 
 import hashlib
 
+
 def _seed(learner_id: str, course_id: str, topic: str) -> float:
     h = hashlib.md5(f"{learner_id}:{course_id}:{topic}".encode()).hexdigest()
     return round(int(h[:6], 16) / 0xFFFF * 0.9 + 0.1, 2)
+
 
 TOPICS_BY_COURSE = {
     "intro-python": ["variables", "loops", "functions", "lists", "dicts", "file-io"],
@@ -120,15 +120,18 @@ for lid, ldata in LEARNERS.items():
             TIME_ON_TASK[lid][cid][t] = round(_seed(lid, cid, t + "_time") * 120, 1)
         SCHEDULE.setdefault(lid, {}).setdefault(cid, [])
         from datetime import date, timedelta
+
         base = date.today()
         for i, t in enumerate(topics):
-            SCHEDULE[lid][cid].append({
-                "topic": t,
-                "next_review": (base + timedelta(days=2 + i * 3)).isoformat(),
-                "last_reviewed": (base - timedelta(days=1 + i * 2)).isoformat(),
-                "interval_days": 2 + i * 3,
-                "ease_factor": round(2.0 + i * 0.15, 2),
-            })
+            SCHEDULE[lid][cid].append(
+                {
+                    "topic": t,
+                    "next_review": (base + timedelta(days=2 + i * 3)).isoformat(),
+                    "last_reviewed": (base - timedelta(days=1 + i * 2)).isoformat(),
+                    "interval_days": 2 + i * 3,
+                    "ease_factor": round(2.0 + i * 0.15, 2),
+                }
+            )
 
 KNOWLEDGE_GRAPH = {
     "intro-python": [
@@ -172,6 +175,7 @@ for lid, ldata in LEARNERS.items():
     for cid in ldata["courses"]:
         rows = []
         from datetime import date, timedelta
+
         today = date.today()
         for i in range(60):
             d = (today - timedelta(days=59 - i)).isoformat()
@@ -185,6 +189,7 @@ for lid, ldata in LEARNERS.items():
 # ---------------------------------------------------------------------------
 # Pydantic models
 # ---------------------------------------------------------------------------
+
 
 class HeatmapRow(BaseModel):
     date: str
@@ -256,6 +261,7 @@ class LearnerProgressResponse(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _learner_or_404(lid: str):
     if lid not in LEARNERS:
         return JSONResponse(status_code=404, content={"detail": f"Learner '{lid}' not found"})
@@ -282,14 +288,17 @@ jinja_env = Environment(
     autoescape=select_autoescape(["html", "xml"]),
 )
 
+
 def render_template(name: str, context: dict):
     """Render a Jinja2 template to HTML string."""
     tmpl = jinja_env.get_template(name)
     return tmpl.render(**context)
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     yield
+
 
 app = FastAPI(
     title="APEX Dashboard API",
@@ -305,6 +314,7 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 # Page routes
 # ---------------------------------------------------------------------------
 
+
 @app.get("/")
 async def index(request: Request):
     return HTMLResponse(content=render_template("index.html", {"request": request}))
@@ -315,7 +325,9 @@ async def course_page(request: Request, course_id: str):
     course = _course_or_404(course_id)
     if isinstance(course, JSONResponse):
         return course
-    return HTMLResponse(content=render_template("course.html", {"request": request, "course": course}))
+    return HTMLResponse(
+        content=render_template("course.html", {"request": request, "course": course})
+    )
 
 
 @app.get("/lesson/{course_id}/{lesson_slug}")
@@ -323,15 +335,18 @@ async def lesson_page(request: Request, course_id: str, lesson_slug: str):
     course = _course_or_404(course_id)
     if isinstance(course, JSONResponse):
         return course
-    return HTMLResponse(content=render_template(
-        "lesson.html",
-        {"request": request, "course": course, "lesson_slug": lesson_slug},
-    ))
+    return HTMLResponse(
+        content=render_template(
+            "lesson.html",
+            {"request": request, "course": course, "lesson_slug": lesson_slug},
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
 # API endpoints
 # ---------------------------------------------------------------------------
+
 
 @app.get("/api/learner/{learner_id}/progress", response_model=LearnerProgressResponse)
 async def learner_progress(learner_id: str):
@@ -350,13 +365,15 @@ async def learner_progress(learner_id: str):
         course_time = sum(t.values()) if t else 0.0
         total_time += course_time
         all_masteries.extend(m.values())
-        courses_summary.append({
-            "course_id": cid,
-            "course_title": COURSES[cid]["title"],
-            "average_mastery": round(avg_mastery, 3),
-            "time_on_task_minutes": round(course_time, 1),
-            "topics_covered": len(m),
-        })
+        courses_summary.append(
+            {
+                "course_id": cid,
+                "course_title": COURSES[cid]["title"],
+                "average_mastery": round(avg_mastery, 3),
+                "time_on_task_minutes": round(course_time, 1),
+                "topics_covered": len(m),
+            }
+        )
 
     overall = mean(all_masteries) if all_masteries else 0.0
     total_topics = sum(len(MASTERY.get(learner_id, {}).get(cid, {})) for cid in learner["courses"])
@@ -440,16 +457,18 @@ async def learner_schedule(learner_id: str, course_id: str):
 
 @app.get("/api/courses", response_model=CourseListResponse)
 async def list_courses():
-    return CourseListResponse(courses=[
-        {
-            "id": cid,
-            "title": c["title"],
-            "description": c["description"],
-            "duration_weeks": c["duration_weeks"],
-            "module_count": len(c["modules"]),
-        }
-        for cid, c in COURSES.items()
-    ])
+    return CourseListResponse(
+        courses=[
+            {
+                "id": cid,
+                "title": c["title"],
+                "description": c["description"],
+                "duration_weeks": c["duration_weeks"],
+                "module_count": len(c["modules"]),
+            }
+            for cid, c in COURSES.items()
+        ]
+    )
 
 
 @app.get("/api/course/{course_id}/progress", response_model=CourseProgressResponse)
@@ -483,4 +502,5 @@ async def course_progress(course_id: str):
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8080, reload=False)

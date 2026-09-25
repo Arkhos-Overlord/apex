@@ -8,7 +8,6 @@ Run with::
 
 from __future__ import annotations
 
-import importlib.util
 import os
 import sys
 from pathlib import Path
@@ -20,7 +19,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from apex.engine import (  # noqa: E402
+from typing import Self
+
+from apex.engine import (
     generate_code_example,
     generate_diagram,
     generate_pdf,
@@ -44,7 +45,7 @@ class _EnvVar:
         self.value = value
         self.old: str | None = None
 
-    def __enter__(self) -> _EnvVar:
+    def __enter__(self) -> Self:
         self.old = os.environ.get(self.name)
         if self.value is None:
             os.environ.pop(self.name, None)
@@ -90,7 +91,7 @@ class TestGenerateDiagram:
 
     def test_valid_svg_structure(self) -> None:
         result = generate_diagram("hierarchy of life")
-        assert result.startswith("<svg") or result.startswith("<svg")
+        assert result.startswith(("<svg", "<svg"))
         assert result.rstrip().endswith("</svg>")
 
 

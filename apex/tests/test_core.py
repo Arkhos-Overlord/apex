@@ -5,9 +5,9 @@ from __future__ import annotations
 from datetime import datetime
 
 import pytest
+from pydantic import ValidationError
 
 from apex.core import AdaptiveDifficulty, Chapter, Course, LearnerState, Lesson
-
 
 # ── Lesson ──────────────────────────────────────────────────────────────
 
@@ -23,12 +23,12 @@ class TestLesson:
 
     def test_difficulty_clamped_low(self) -> None:
         """Lesson raises on difficulty below 1."""
-        with pytest.raises(Exception):  # pydantic validation
+        with pytest.raises(ValidationError):
             Lesson(title="Intro", content="Hello", difficulty=0)
 
     def test_difficulty_clamped_high(self) -> None:
         """Lesson raises on difficulty above 10."""
-        with pytest.raises(Exception):  # pydantic validation
+        with pytest.raises(ValidationError):
             Lesson(title="Intro", content="Hello", difficulty=15)
 
     def test_serialization(self) -> None:
@@ -317,7 +317,7 @@ class TestIntegration:
         # 1. Create content
         lesson = Lesson(title="Variables", content="What is a variable", difficulty=3)
         chapter = Chapter(title="Intro", lessons=[lesson])
-        course = Course(id="cs101", title="CS101", description="Intro", chapters=[chapter])
+        _ = Course(id="cs101", title="CS101", description="Intro", chapters=[chapter])
 
         # 2. Track learner
         ls = LearnerState()
@@ -337,3 +337,6 @@ class TestIntegration:
         assert ls.get_mastery("variables") > 0
         assert len(ls.attempt_history) == 3
         assert len(ls.evidence) == 3
+
+
+# ── LearnerState persistence ──────────────────────────────────────────────

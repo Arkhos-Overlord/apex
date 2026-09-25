@@ -175,7 +175,7 @@ result = run_code("print('Hello')", language="python")
 score = grade_code(
     source="def add(a, b): return a + b",
     test_cases=[{"input": "add(1,2)", "expected_output": "3", "description": "basic addition"}],
-    language="python"
+    language="python",
 )
 # {passed: 1, total: 1, score: 1.0, details: [...]}
 ```

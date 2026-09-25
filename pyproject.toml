@@ -13,6 +13,7 @@ dependencies = [
     "fastapi>=0.104",
     "uvicorn[standard]>=0.24",
     "pydantic>=2.0",
+    "pyyaml>=6.0",
     "fpdf2>=2.7",
     "reportlab>=4.0",
 ]
@@ -32,3 +33,7 @@ line-length = 100
 python_version = "3.11"
 warn_return_any = true
 strict = true
+
+[tool.pytest.ini_options]
+testpaths = ['apex/tests']
+asyncio_mode = 'auto'

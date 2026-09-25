@@ -29,7 +29,7 @@ cli.add_command(dashboard)
 if __name__ == "__main__":
     cli()
 
+
 def main() -> None:
     """Entry point for apex CLI."""
     cli()
-
