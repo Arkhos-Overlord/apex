@@ -547,3 +547,119 @@ Once you provide those snippets, I’ll give you **line‑level feedback**, poin
 - **Maintainability**: Add type hints, `__all__`, plugin hooks, and a changelog; automate dependency updates.
 
 Give me the concrete files and I’ll turn this high‑level checklist into a **targeted, actionable audit**. 🚀
+
+
+================================================================================
+REVIEW BY gemma4:31b-cloud (clone-based, detailed code audit)
+================================================================================
+
+Cloned the repo from GitHub and reviewed all 40+ source files. Found 32 issues across categories.
+
+## CRITICAL / SECURITY
+1. docker-compose.yml:26 - Healthcheck hits /health but no such route exists in dashboard/server.py. Add endpoint or change to /.
+2. dashboard/server.py:94 - import hashlib mid-file (line 94), used before declaration at lines 97-99.
+3. apex/engine/code_exec.py:391-396 - File descriptor leak in _build_command via tempfile.mkstemp(). Open fd not explicitly closed.
+4. apex/engine/content_gen.py:362 - Typo: "Her pay TTS raised {exc!r}" should be "Hermes TTS raised...".
+
+## ALGORITHM CORRECTNESS
+5. apex/core/bkt.py:119 - p_learn applied unconditionally after Bayesian update, including on incorrect answers. Standard BKT applies learning transition only on opportunity to learn.
+6. apex/core/bkt.py:191 - Hard-coded 0.5 threshold for partial credit (score >= 0.5). Should be configurable per exercise difficulty.
+7. apex/core/bkt.py:242 - Unseen skills use p_init (0.25) contradicting docstring claim "unseen -> assume mastered" (MASTERED=0.95). learner.py:134 uses MASTERED - inconsistency.
+8. apex/core/adaptive.py:86 - Topic rating DECREASES when learner performs well (topic_rating - delta). Should stay same or increase.
+9. apex/engine/assessment.py:182 - Non-standard SM-2 easiness factor. Delta formula differs from standard EF' = EF + 0.1*(5-q) - 0.07.
+
+## ARCHITECTURE
+10. apex/cli/commands.py - Tests import from cli.main instead of apex.cli.main.
+11. apex/cli/commands.py - CLI commands are stubs printing static data, not functional.
+12. apex/core/learner.py:21 - Global BKT_MODE flag affects all LearnerState instances. Should be per-instance.
+13. apex/store.py:14 - Typo: PECISION should be PRECISION.
+14. apex/store.py:26 - Pickle for BLOB storage. Use JSON for safety and debuggability.
+15. apex/sandbox.py:224 - POSIX wrapper arg parsing mismatch between _build_cmd and wrapper.
+16. apex/sandbox.py:397 - sys.argv = sys.argv[-1:] strips all args except last. Logic broken.
+
+## TEST QUALITY
+17. apex/tests/test_bkt.py:81-87 - test_select_next_returns_exercise asserts True unconditionally (no-op test).
+18. apex/tests/test_bkt.py:96-97 - test_select_next_returns_none_when_done doesn't actually assert result is None.
+19. apex/tests/test_bkt.py:100-109 - test_select_next_respects_prereqs misnamed - select_next() doesn't check prerequisites.
+20. apex/tests/test_content_gen.py:171-176 - test_returns_path_for_empty_text missing assertion on file content.
+
+## DOCUMENTATION / METADATA
+21. README.md:5 - Test badge claims 208/208 but actual count is ~225+. Outdated.
+22. pyproject.toml:19 - Both fpdf2 and reportlab listed; reportlab code is unreachable fallback.
+23. dashboard/templates/index.html:8 - Chart.js CDN with no fallback. For Docker deployment, bundle locally.
+
+## MINOR / STYLE
+24. apex/engine/content_gen.py:176-203 - svgwrite imported twice.
+25. apex/engine/content_gen.py:203 - except AttributeError: svg_string = dwg.tostring() identical to try block.
+26. apex/engine/assessment.py:486-489 - Module-level wrappers create fresh engine instances, losing state.
+27. apex/dashboard/server.py:362 - Hardcoded 60% completion in course_progress.
+28-30. apex/dashboard/static/js/app.js - Heatmap and mastery bars use Math.random() instead of API data. Learner ID hardcoded to "alice".
+
+---
+
+================================================================================
+REVIEW BY gpt-oss-120b (clone-based, comprehensive architecture audit)
+================================================================================
+
+## ARCHITECTURE
+- apex/core/__init__.py (106 lines) re-exports too many symbols. GOD-MODULE anti-pattern. Creates circular-import surface area.
+- No src/ layout. import apex works only when CWD is repo root or sys.path patched. Tests, server, and content_gen all patch sys.path.
+
+## DEPENDENCIES
+- No lock file (uv.lock, poetry.lock, requirements.txt). Reproducible installs require one.
+- openai NOT in pyproject.toml dependencies but content_gen.py calls openai API. Silently degrades to stubs. Will not work on fresh install.
+- docker NOT in pyproject.toml dependencies but DockerRunner requires docker SDK.
+- python-json-logger possibly unused. Dead dependency.
+
+## TEST QUALITY
+- No tests for apex/core/course.py, apex/core/learner.py, apex/core/adaptive.py, apex/engine/code_exec.py, apex/engine/assessment.py, apex/cli/.
+- test_bkt.py:103 leaks tmp_test.db into repo root.
+- test_store.py:80 misnamed "concurrent" test (sequential writes only).
+- test_bkt.py:81-86 placeholder assertion (assert True).
+
+## DOCUMENTATION
+- NO LICENSE FILE - critical omission for open-source project. No legal usage terms.
+- No API reference (Sphinx/MkDocs). No changelog. No .env.example. No CI/CD configuration.
+
+## DEPLOYMENT
+- Dockerfile uses uv pip install . but pyproject.toml lists tests as package, dashboard excluded. Not proper install.
+- docker-compose.yml includes PostgreSQL service but store.py is SQLite-only. Dead infrastructure. Either implement PG support or remove it.
+- No HEALTHCHECK in Dockerfile.
+- No .env.example for Docker/local setup.
+
+## SANDBOX
+- CRITICAL: import resource at module level (line 23) hard-crashes on Windows. resource.setrlimit is Unix-only. Tests skip on Windows but import itself fails. Needs try/except ImportError guard.
+- DockerRunner requires docker SDK not in dependencies.
+- DockerRunner.run doesn't handle case where python:3.12-slim image isn't pulled.
+
+## SCALABILITY
+- SQLite single-writer bottleneck. docker-compose has PostgreSQL but code uses SQLite.
+- No caching layer. ContentLibrary loads all exercises every instantiation. Store opens new connection per operation.
+- No async persistence. Store methods are synchronous - blocks event loop in async context.
+- Content generation blocking (synchronous OpenAI API calls).
+- Sandbox overhead. DockerRunner spawns container per execution (slow).
+
+## COMBINED ACTIONABLE FINDINGS
+CRITICAL (block deployment):
+- [ ] No LICENSE file
+- [ ] sandbox.py import resource hard-crashes on Windows
+- [ ] openai and docker packages missing from pyproject.toml
+- [ ] Docker healthcheck /health endpoint doesn't exist
+- [ ] PostgreSQL in compose but SQLite-only code (dead infrastructure)
+
+HIGH PRIORITY:
+- [ ] No lock file for reproducible installs
+- [ ] store.py dynamic column addition doesn't scale - normalize schema
+- [ ] test_bkt.py:103 leaks tmp_test.db into repo root
+- [ ] core/__init__.py god-module re-exports
+- [ ] resource import needs Windows guard in sandbox.py
+- [ ] bkt.py p_learn applied after incorrect answers (algorithmic bug)
+- [ ] adaptive.py topic rating decreases on good performance (wrong direction)
+
+MEDIUM PRIORITY:
+- [ ] No CI/CD configuration
+- [ ] No .env.example
+- [ ] No health check endpoint
+- [ ] Placeholder assertions in test_bkt.py
+- [ ] Dashboard JS uses Math.random() instead of API data
+- [ ] Dead dependencies (python-json-logger, possibly pydantic)
