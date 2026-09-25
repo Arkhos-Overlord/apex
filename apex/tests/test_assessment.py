@@ -26,16 +26,16 @@ class TestSpacedRepetition:
 
     def test_new_card_on_first_review(self) -> None:
         engine = SpacedRepetition()
-        now = dt.datetime(2024, 1, 1)
+        now = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
         card = engine.schedule_review("lesson:1", quality=4, now=now)
         assert card["material"] == "lesson:1"
         assert card["repetitions"] == 1
         assert card["interval"] == 1
-        assert card["next_date"] == dt.datetime(2024, 1, 2)
+        assert card["next_date"] == dt.datetime(2024, 1, 2, tzinfo=dt.UTC)
 
     def test_quality_zero_resets_repetitions(self) -> None:
         engine = SpacedRepetition()
-        now = dt.datetime(2024, 1, 1)
+        now = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
         engine.schedule_review("l2", quality=5, now=now)
         card = engine.schedule_review("l2", quality=0, now=now + dt.timedelta(days=1))
         assert card["repetitions"] == 0
@@ -43,7 +43,7 @@ class TestSpacedRepetition:
 
     def test_easiness_factor_floor(self) -> None:
         engine = SpacedRepetition()
-        now = dt.datetime(2024, 1, 1)
+        now = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
         engine.schedule_review("l3", quality=0, now=now)
         card = engine.schedule_review("l3", quality=0, now=now + dt.timedelta(days=1))
         assert card["easiness_factor"] >= 1.3
@@ -55,7 +55,7 @@ class TestSpacedRepetition:
 
     def test_get_due_reviews_selects_overdue(self) -> None:
         engine = SpacedRepetition()
-        now = dt.datetime(2024, 1, 10)
+        now = dt.datetime(2024, 1, 10, tzinfo=dt.UTC)
         engine.schedule_review("a", quality=5, now=now - dt.timedelta(days=3))
         engine.schedule_review("b", quality=5, now=now - dt.timedelta(days=2))
         engine.schedule_review("c", quality=5, now=now + dt.timedelta(days=5))
@@ -64,14 +64,14 @@ class TestSpacedRepetition:
 
     def test_get_due_reviews_empty_when_nothing_due(self) -> None:
         engine = SpacedRepetition()
-        now = dt.datetime(2024, 1, 1)
+        now = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
         engine.schedule_review("future", quality=5, now=now)
         due = engine.get_due_reviews({}, now=now + dt.timedelta(days=1))
         assert "future" in due  # interval=1 so it is due next day
 
     def test_interval_growth_across_repetitions(self) -> None:
         engine = SpacedRepetition()
-        now = dt.datetime(2024, 1, 1)
+        now = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
         for _ in range(4):
             now = now + dt.timedelta(days=1)
             engine.schedule_review("growing", quality=5, now=now)
@@ -81,13 +81,13 @@ class TestSpacedRepetition:
 
     def test_quality_clamped_below_zero(self) -> None:
         engine = SpacedRepetition()
-        now = dt.datetime(2024, 1, 1)
+        now = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
         card = engine.schedule_review("clamp-below", quality=-5, now=now)
         assert card["interval"] == 1  # treated as quality 0
 
     def test_quality_clamped_above_five(self) -> None:
         engine = SpacedRepetition()
-        now = dt.datetime(2024, 1, 1)
+        now = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
         card = engine.schedule_review("clamp-above", quality=99, now=now)
         assert card["interval"] == 1  # treated as quality 5
 

@@ -1,6 +1,9 @@
+
 """Tests for the APEX teacher persona system."""
 
 from __future__ import annotations
+
+from dataclasses import FrozenInstanceError
 
 import pytest
 
@@ -91,7 +94,7 @@ class TestTeacherProfilesDict:
         for profile in TEACHER_PROFILES.values():
             assert isinstance(profile, TeacherProfile)
             # Frozen dataclass should not allow attribute setting
-            with pytest.raises(Exception):  # AttributeError or similar
+            with pytest.raises((AttributeError, FrozenInstanceError)):
                 profile.name = "New Name"
 
 

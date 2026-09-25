@@ -147,7 +147,7 @@ class ExerciseDef:
         return f"Exercise(id={self.id!r}, skills={set(self.skills)!r})"
 
     def __eq__(self, other: object) -> bool:
-        if not isinstance(other, Exercise):
+        if not isinstance(other, ExerciseDef):
             return NotImplemented
         return self.id == other.id and self.skills == other.skills
 
@@ -207,9 +207,9 @@ def apply_attempt(
 def select_next(
     mastery: dict[str, float],
     solved: set[str],
-    exercises: list[Exercise],
+    exercises: list[ExerciseDef],
     prm: BKTParams = _DEFAULT_PARAMS,
-) -> Exercise | None:
+) -> ExerciseDef | None:
     """Choose the next exercise using a BKT-informed policy.
 
     The policy selects the exercise whose **minimum** skill mastery is
@@ -228,7 +228,7 @@ def select_next(
         The selected ``Exercise`` or ``None`` when no suitable
         exercise exists.
     """
-    best: Exercise | None = None
+    best: ExerciseDef | None = None
     best_score: float = 2.0  # anything above 1.0
 
     for ex in exercises:

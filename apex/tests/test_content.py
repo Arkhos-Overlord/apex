@@ -61,7 +61,7 @@ def test_prereq_cycle_detection(lib: ContentLibrary) -> None:
 
 def test_invalid_exercise_id(lib: ContentLibrary) -> None:
     """Exercise id must be a valid slug."""
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         Exercise(
             id="invalid id!",
             title="Bad",
