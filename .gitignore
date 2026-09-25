@@ -19,3 +19,6 @@ venv/
 Thumbs.db
 node_modules/
 static/js/*.map
+outputs/
+apex/outputs/
+dashboard/static/js/api.js
