@@ -483,24 +483,24 @@ class MasteryScorer:
 # ===================================================================
 
 
+_ENGINE = SpacedRepetition()
+
+
 def schedule_review(material: str, quality: int) -> Card:
-    """Single-use wrapper around ``SpacedRepetition.schedule_review``."""
-    engine = SpacedRepetition()
-    return engine.schedule_review(material, quality)
+    """Schedule a review using the module-level engine instance."""
+    return _ENGINE.schedule_review(material, quality)
 
 
 def next_review_date(material: str) -> datetime:
-    """Single-use wrapper; primes the card with a mid rating if absent."""
-    engine = SpacedRepetition()
-    if material not in engine._cards:
-        engine.schedule_review(material, 3)
-    return engine.next_review_date(material)
+    """Get next review date, priming the card if absent."""
+    if material not in _ENGINE._cards:
+        _ENGINE.schedule_review(material, 3)
+    return _ENGINE.next_review_date(material)
 
 
 def get_due_reviews(learner_state: LearnerState) -> list[str]:
-    """Single-use wrapper around ``SpacedRepetition.get_due_reviews``."""
-    engine = SpacedRepetition()
-    return engine.get_due_reviews(learner_state)
+    """Get due reviews from the module-level engine instance."""
+    return _ENGINE.get_due_reviews(learner_state)
 
 
 # ===================================================================

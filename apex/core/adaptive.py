@@ -83,7 +83,7 @@ class AdaptiveDifficulty(BaseModel):
         delta = self.k_factor * (performance - expected)
 
         self.learner_ratings[topic] = learner_rating + delta
-        self.topic_ratings[topic] = topic_rating - delta
+        self.topic_ratings[topic] = topic_rating + delta
 
     @property
     def zpd_topics(self) -> list[str]:

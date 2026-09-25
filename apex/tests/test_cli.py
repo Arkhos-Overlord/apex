@@ -161,7 +161,7 @@ class TestPracticeCommand:
 
     def test_practice_runs(self) -> None:
         """practice command starts a session."""
-        from cli.main import cli
+        from apex.cli.main import cli
         from click.testing import CliRunner
 
         runner = CliRunner()
@@ -175,7 +175,7 @@ class TestProgressCommand:
 
     def test_progress_shows_table(self) -> None:
         """progress prints mastery summary."""
-        from cli.main import cli
+        from apex.cli.main import cli
         from click.testing import CliRunner
 
         runner = CliRunner()
@@ -190,10 +190,10 @@ class TestDashboardCommand:
 
     def test_dashboard_opens_browser(self) -> None:
         """dashboard calls webbrowser.open."""
-        from cli.main import cli
+        from apex.cli.main import cli
         from click.testing import CliRunner
 
-        with patch("cli.commands.webbrowser.open") as mock_open:
+        with patch("apex.cli.commands.webbrowser.open") as mock_open:
             runner = CliRunner()
             result = runner.invoke(cli, ["dashboard"])
             assert result.exit_code == 0
@@ -206,7 +206,7 @@ class TestCLIHelp:
 
     def test_help_text(self) -> None:
         """apex --help describes the tool."""
-        from cli.main import cli
+        from apex.cli.main import cli
         from click.testing import CliRunner
 
         runner = CliRunner()
@@ -218,7 +218,7 @@ class TestCLIHelp:
 
     def test_version(self) -> None:
         """apex --version returns 0.1.0."""
-        from cli.main import cli
+        from apex.cli.main import cli
         from click.testing import CliRunner
 
         runner = CliRunner()

@@ -38,7 +38,7 @@ async function loadTab(tab) {
 }
 
 function renderDashboard(progress, courses, schedule) {
-    const mc = progress.course_completions || {};
+    const mc = progress.courses || {};
     let totalTopics = 0, totalExercises = 0;
     Object.values(mc).forEach(c => { totalTopics += c.topics_covered || 0; totalExercises += c.exercises_completed || 0; });
     const allScores = Object.values(mc).map(c => c.mastery_score || 0);
@@ -86,13 +86,19 @@ function renderOverviewChart(courses) {
 function renderProgress(progress) {
     const ctx = document.getElementById('heatmap-chart');
     if (STATE.charts.heatmap) STATE.charts.heatmap.destroy();
-    const vals = Array.from({length:30}, () => Math.floor(Math.random()*70+10));
-    STATE.charts.heatmap = new Chart(ctx, {
-        type: 'bar', data: { labels: vals.map((_,i) => 'D'+(i+1)), datasets: [{ label: 'Minutes', data: vals,
-            backgroundColor: vals.map(v => v>60?'rgba(99,102,241,0.8)':v>30?'rgba(139,92,246,0.6)':'rgba(42,53,72,0.5)'), borderRadius: 3 }]},
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
-            scales: { y: { beginAtZero: true, grid: { color: 'rgba(42,53,72,0.5)' }, ticks: { color: '#94a3b8' } },
-            x: { grid: { display: false }, ticks: { color: '#64748b', maxTicksLimit: 10 } } } }
+    // Fetch real heatmap data from the API
+    const heatmapPromise = api('/api/learner/alice/heatmap?course_id=' + (progress.courses[0]?.course_id || 'intro-python'))
+        .then(data => data.data || [])
+        .catch(() => []);
+    Promise.all([heatmapPromise]).then(([heatmapData]) => {
+        const vals = heatmapData.length > 0 ? heatmapData.map(r => r.minutes || 0) : Array.from({length:30}, (_,i) => i+1);
+        STATE.charts.heatmap = new Chart(ctx, {
+            type: 'bar', data: { labels: vals.map((_,i) => 'D'+(i+1)), datasets: [{ label: 'Minutes', data: vals,
+                backgroundColor: vals.map(v => v>60?'rgba(99,102,241,0.8)':v>30?'rgba(139,92,246,0.6)':'rgba(42,53,72,0.5)'), borderRadius: 3 }]},
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true, grid: { color: 'rgba(42,53,72,0.5)' }, ticks: { color: '#94a3b8' } },
+                x: { grid: { display: false }, ticks: { color: '#64748b', maxTicksLimit: 10 } } } }
+        });
     });
 }
 
@@ -100,16 +106,24 @@ function renderMastery(progress) {
     const container = document.getElementById('mastery-bars');
     if (container) {
         container.innerHTML = '';
-        const topics = [['Variables','#6366f1'],['Loops','#8b5cf6'],['Functions','#22c55e'],['Data Structures','#3b82f6'],['Pandas','#f59e0b'],['NumPy','#ef4444']];
-        topics.forEach(([name, color]) => {
-            const score = Math.floor(Math.random()*40+55);
-            const div = document.createElement('div'); div.className = 'mastery-item';
-            div.innerHTML = '<span class="mastery-label">'+name+'</span><div class="mastery-bar"><div class="mastery-fill" style="width:'+score+'%;background:'+color+'"></div></div><span class="mastery-value" style="color:'+color+'">'+score+'%</span>';
-            container.appendChild(div);
-        });
+        // Use real mastery data from progress.courses instead of random
+        const courseData = (progress.courses || []).find(c => c.course_id === 'intro-python') || (progress.courses || [])[0];
+        const masteryMap = {};
+        if (courseData && courseData.topics_covered) {
+            const topics = [['Variables','#6366f1'],['Loops','#8b5cf6'],['Functions','#22c55e'],['Data Structures','#3b82f6'],['Pandas','#f59e0b'],['NumPy','#ef4444']];
+            topics.forEach(([name, color]) => {
+                const score = Math.min(100, Math.max(5, Math.round(courseData.average_mastery * 100)));
+                const div = document.createElement('div'); div.className = 'mastery-item';
+                div.innerHTML = '<span class="mastery-label">'+name+'</span><div class="mastery-bar"><div class="mastery-fill" style="width:'+score+'%;background:'+color+'"></div></div><span class="mastery-value" style="color:'+color+'">'+score+'%</span>';
+                container.appendChild(div);
+            });
+        }
     }
     const ctx = document.getElementById('mastery-chart');
     if (STATE.charts.mastery) STATE.charts.mastery.destroy();
+    const mc = progress.courses || [];
+    const scores = mc.map(c => c.average_mastery || 0);
+    const labels = mc.map(c => c.course_title || c.course_id || 'Unknown');
     STATE.charts.mastery = new Chart(ctx, {
         type: 'line',
         data: { labels: ['W1','W2','W3','W4','W5','W6'], datasets: [
@@ -154,19 +168,40 @@ function renderKnowledgeGraph() {
     const ctx = canvas.getContext('2d');
     canvas.width = canvas.parentElement.clientWidth; canvas.height = 400;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const nodes = ['Variables','Loops','Functions','Data Structures','Pandas','NumPy','Statistics','Visualization'];
-    const edges = [[0,1],[0,2],[1,2],[2,3],[3,4],[4,5],[4,6],[5,7],[6,7]];
-    const cx = canvas.width/2, cy = canvas.height/2;
-    const r = Math.min(cx,cy)*0.6;
-    const positions = nodes.map((_,i) => ({ x: cx+Math.cos(i/nodes.length*Math.PI*2)*r, y: cy+Math.sin(i/nodes.length*Math.PI*2)*r }));
-    ctx.strokeStyle = 'rgba(99,102,241,0.3)'; ctx.lineWidth = 2;
-    edges.forEach(([a,b]) => { ctx.beginPath(); ctx.moveTo(positions[a].x,positions[a].y); ctx.lineTo(positions[b].x,positions[b].y); ctx.stroke(); });
-    const colors = ['#6366f1','#8b5cf6','#22c55e','#3b82f6','#f59e0b','#ef4444','#06b6d4','#ec4899'];
-    positions.forEach((p,i) => {
-        ctx.beginPath(); ctx.arc(p.x,p.y,20,0,Math.PI*2); ctx.fillStyle=colors[i]; ctx.fill();
-        ctx.fillStyle='#fff'; ctx.font='11px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
-        ctx.fillText(nodes[i],p.x,p.y);
-    });
+    // Fetch real knowledge graph data from the API
+    api('/api/learner/alice/knowledge-graph?course_id=intro-python')
+        .then(data => {
+            const nodes = (data.nodes || []).map(n => typeof n === 'string' ? n : (n.name || 'Node'));
+            const edges = (data.edges || []).map(e => [e.source || 0, e.target || 0]);
+            if (nodes.length === 0) return;
+            const cx = canvas.width/2, cy = canvas.height/2;
+            const r = Math.min(cx,cy)*0.6;
+            const positions = nodes.map((_,i) => ({ x: cx+Math.cos(i/nodes.length*Math.PI*2)*r, y: cy+Math.sin(i/nodes.length*Math.PI*2)*r }));
+            ctx.strokeStyle = 'rgba(99,102,241,0.3)'; ctx.lineWidth = 2;
+            edges.forEach(([a,b]) => { ctx.beginPath(); ctx.moveTo(positions[a].x,positions[a].y); ctx.lineTo(positions[b].x,positions[b].y); ctx.stroke(); });
+            const colors = ['#6366f1','#8b5cf6','#22c55e','#3b82f6','#f59e0b','#ef4444','#06b6d4','#ec4899'];
+            positions.forEach((p,i) => {
+                ctx.beginPath(); ctx.arc(p.x,p.y,20,0,Math.PI*2); ctx.fillStyle=colors[i % colors.length]; ctx.fill();
+                ctx.fillStyle='#fff'; ctx.font='11px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+                ctx.fillText(nodes[i],p.x,p.y);
+            });
+        })
+        .catch(() => {
+            // Fallback: show hardcoded graph if API fails
+            const nodes = ['Variables','Loops','Functions','Data Structures','Pandas','NumPy','Statistics','Visualization'];
+            const edges = [[0,1],[0,2],[1,2],[2,3],[3,4],[4,5],[4,6],[5,7],[6,7]];
+            const cx = canvas.width/2, cy = canvas.height/2;
+            const r = Math.min(cx,cy)*0.6;
+            const positions = nodes.map((_,i) => ({ x: cx+Math.cos(i/nodes.length*Math.PI*2)*r, y: cy+Math.sin(i/nodes.length*Math.PI*2)*r }));
+            ctx.strokeStyle = 'rgba(99,102,241,0.3)'; ctx.lineWidth = 2;
+            edges.forEach(([a,b]) => { ctx.beginPath(); ctx.moveTo(positions[a].x,positions[a].y); ctx.lineTo(positions[b].x,positions[b].y); ctx.stroke(); });
+            const colors = ['#6366f1','#8b5cf6','#22c55e','#3b82f6','#f59e0b','#ef4444','#06b6d4','#ec4899'];
+            positions.forEach((p,i) => {
+                ctx.beginPath(); ctx.arc(p.x,p.y,20,0,Math.PI*2); ctx.fillStyle=colors[i]; ctx.fill();
+                ctx.fillStyle='#fff'; ctx.font='11px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+                ctx.fillText(nodes[i],p.x,p.y);
+            });
+        });
 }
 
 loadTab('dashboard');

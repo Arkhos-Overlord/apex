@@ -205,6 +205,7 @@ class HeatmapResponse(BaseModel):
 
 class KnowledgeGraphNode(BaseModel):
     id: str
+    name: str = ""
     group: str
 
 
@@ -433,7 +434,7 @@ async def learner_knowledge_graph(learner_id: str, course_id: str):
         node_ids.add(e["source"])
         node_ids.add(e["target"])
     for nid in sorted(node_ids):
-        nodes.append(KnowledgeGraphNode(id=nid, group=course_id))
+        nodes.append(KnowledgeGraphNode(id=nid, name=nid, group=course_id))
 
     return KnowledgeGraphResponse(
         learner_id=learner_id,

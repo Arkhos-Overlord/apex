@@ -248,10 +248,11 @@ class TestAdaptiveDifficulty:
         assert engine.learner_ratings["math"] < 1200.0
 
     def test_update_model_flips_topic_rating(self) -> None:
+        """Good performance increases topic difficulty rating."""
         engine = AdaptiveDifficulty()
         ls = LearnerState()
         engine.update_model(ls, "math", 1.0)
-        assert engine.topic_ratings["math"] < 1200.0
+        assert engine.topic_ratings["math"] > 1200.0
 
     def test_update_model_invalid_performance_raises(self) -> None:
         engine = AdaptiveDifficulty()
