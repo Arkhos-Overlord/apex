@@ -95,8 +95,9 @@ import hashlib
 
 
 def _seed(learner_id: str, course_id: str, topic: str) -> float:
+    """Deterministic pseudo-mastery in the [0.1, 1.0] range for demo data."""
     h = hashlib.md5(f"{learner_id}:{course_id}:{topic}".encode()).hexdigest()
-    return round(int(h[:6], 16) / 0xFFFF * 0.9 + 0.1, 2)
+    return round(int(h[:6], 16) / 0xFFFFFF * 0.9 + 0.1, 2)
 
 
 TOPICS_BY_COURSE = {

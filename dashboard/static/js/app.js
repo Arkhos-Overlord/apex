@@ -40,8 +40,8 @@ async function loadTab(tab) {
 function renderDashboard(progress, courses, schedule) {
     const mc = progress.courses || {};
     let totalTopics = 0, totalExercises = 0;
-    Object.values(mc).forEach(c => { totalTopics += c.topics_covered || 0; totalExercises += c.exercises_completed || 0; });
-    const allScores = Object.values(mc).map(c => c.mastery_score || 0);
+    mc.forEach(c => { totalTopics += c.topics_covered || 0; totalExercises += c.topics_covered || 0; });
+    const allScores = mc.map(c => Math.round((c.average_mastery || 0) * 100));
     const avg = allScores.length ? Math.round(allScores.reduce((a,b)=>a+b,0)/allScores.length) : 0;
     document.getElementById('stat-courses').textContent = courses.courses.length;
     document.getElementById('stat-topics').textContent = totalTopics;
@@ -50,7 +50,7 @@ function renderDashboard(progress, courses, schedule) {
     document.getElementById('overall-mastery').textContent = avg;
     document.getElementById('streak').textContent = '7d';
     document.getElementById('hours').textContent = '34.2';
-    renderActivityChart(); renderOverviewChart(courses);
+    renderActivityChart(); renderOverviewChart(progress);
 }
 
 function renderActivityChart() {
@@ -68,11 +68,12 @@ function renderActivityChart() {
     });
 }
 
-function renderOverviewChart(courses) {
+function renderOverviewChart(progress) {
     const ctx = document.getElementById('overview-chart');
     if (STATE.charts.overview) STATE.charts.overview.destroy();
-    const names = courses.courses.map(c => c.title.split(' ').slice(0,2).join(' '));
-    const scores = courses.courses.map(c => c.completion_percent || 0);
+    const mc = progress.courses || [];
+    const names = mc.map(c => (c.course_title || '').split(' ').slice(0,2).join(' '));
+    const scores = mc.map(c => Math.round((c.average_mastery || 0) * 100));
     STATE.charts.overview = new Chart(ctx, {
         type: 'radar',
         data: { labels: names, datasets: [{ label: 'Completion %', data: scores,
@@ -91,7 +92,10 @@ function renderProgress(progress) {
         .then(data => data.data || [])
         .catch(() => []);
     Promise.all([heatmapPromise]).then(([heatmapData]) => {
-        const vals = heatmapData.length > 0 ? heatmapData.map(r => r.minutes || 0) : Array.from({length:30}, (_,i) => i+1);
+        // Heatmap rows are {date, topics: {topic: minutes}} — sum per day
+        const vals = heatmapData.length > 0
+            ? heatmapData.map(r => Object.values(r.topics || {}).reduce((a,b)=>a+b, 0))
+            : Array.from({length:30}, (_,i) => i+1);
         STATE.charts.heatmap = new Chart(ctx, {
             type: 'bar', data: { labels: vals.map((_,i) => 'D'+(i+1)), datasets: [{ label: 'Minutes', data: vals,
                 backgroundColor: vals.map(v => v>60?'rgba(99,102,241,0.8)':v>30?'rgba(139,92,246,0.6)':'rgba(42,53,72,0.5)'), borderRadius: 3 }]},
