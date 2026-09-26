@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue)](https://python.org)
-[![Tests](https://img.shields.io/badge/Tests-208%2F208-brightgreen)](https://github.com/Arkhos-Overlord/apex/actions)
+[![Tests](https://img.shields.io/badge/Tests-243%2F243-brightgreen)](https://github.com/Arkhos-Overlord/apex/actions)
 [![Lint](https://img.shields.io/badge/Lint-Clean-success)](https://github.com/Arkhos-Overlord/apex/actions)
 
 > A standalone teaching platform that turns any AI agent into a personalized instructor. Build courses, execute code, track mastery, and learn with adaptive difficulty — all from the terminal or a browser.
