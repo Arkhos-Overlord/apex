@@ -2,17 +2,78 @@
 
 from __future__ import annotations
 
+import json
+import pickle
 import sqlite3
 from pathlib import Path
 
 import pytest
 
-from apex.store import Store
+from apex.store import PRECISION, Store, StoreError
 
 
 @pytest.fixture
 def tmp_store(tmp_path: Path) -> Store:
     return Store(tmp_path / "test.db")
+
+
+# ── mastery serialisation ───────────────────────────────────────────────
+
+
+def test_mastery_is_stored_as_readable_json(tmp_store: Store) -> None:
+    """The payload must be inspectable text, not an opaque pickle."""
+    tmp_store.set_mastery("alice", {"io": 0.5, "arithmetic": 0.8})
+    conn = sqlite3.connect(tmp_store._db_path)
+    raw = conn.execute("SELECT p FROM mastery WHERE learner = 'alice'").fetchone()[0]
+    conn.close()
+    assert isinstance(raw, str)
+    assert json.loads(raw) == {"arithmetic": 0.8, "io": 0.5}
+
+
+def test_mastery_values_are_rounded_to_precision(tmp_store: Store) -> None:
+    tmp_store.set_mastery("alice", {"io": 1 / 3})
+    assert tmp_store.get_mastery("alice")["io"] == pytest.approx(1 / 3, abs=10**-PRECISION)
+
+
+def test_legacy_pickled_mastery_still_loads(tmp_store: Store) -> None:
+    """Databases written before the JSON switch must remain readable."""
+    legacy = pickle.dumps([("io", 0.25), ("loops", 0.75)])
+    conn = sqlite3.connect(tmp_store._db_path)
+    conn.execute("INSERT OR REPLACE INTO mastery (learner, p) VALUES (?, ?)", ("old", legacy))
+    conn.commit()
+    conn.close()
+
+    assert tmp_store.get_mastery("old") == {"io": 0.25, "loops": 0.75}
+
+
+def test_corrupt_mastery_raises_store_error(tmp_store: Store) -> None:
+    """A garbage payload raises StoreError, not an unrelated decode error."""
+    conn = sqlite3.connect(tmp_store._db_path)
+    conn.execute("INSERT OR REPLACE INTO mastery (learner, p) VALUES (?, ?)", ("bad", "{not json"))
+    conn.commit()
+    conn.close()
+
+    with pytest.raises(StoreError):
+        tmp_store.get_mastery("bad")
+
+
+def test_non_object_mastery_raises_store_error(tmp_store: Store) -> None:
+    """Valid JSON of the wrong shape is rejected rather than coerced."""
+    conn = sqlite3.connect(tmp_store._db_path)
+    conn.execute("INSERT OR REPLACE INTO mastery (learner, p) VALUES (?, ?)", ("bad", "[1, 2]"))
+    conn.commit()
+    conn.close()
+
+    with pytest.raises(StoreError):
+        tmp_store.get_mastery("bad")
+
+
+def test_empty_mastery_round_trips(tmp_store: Store) -> None:
+    tmp_store.set_mastery("alice", {})
+    assert tmp_store.get_mastery("alice") == {}
+
+
+# ── schema and CRUD ─────────────────────────────────────────────────────
 
 
 def test_store_creates_tables(tmp_store: Store) -> None:

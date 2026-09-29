@@ -39,6 +39,11 @@ TestCase = dict[str, str]
 TestCaseResult = dict[str, Any]
 """Keys: description, passed (bool), expected, got, input."""
 
+#: Exit code reported when a run is killed for exceeding its timeout.
+#: Mirrors the coreutils convention for `timeout(1)`, so callers can
+#: distinguish "the program failed" from "the program never finished".
+TIMEOUT_EXIT_CODE = 124
+
 
 # ---------------------------------------------------------------------------
 # run_code
@@ -89,6 +94,19 @@ def run_code(
         runner = LocalPythonRunner(limits=limits)
         try:
             result = asyncio.run(runner.run(source))
+            if result.timed_out:
+                # The runner kills the child, so the exit code we get back
+                # is whatever the OS reports for a killed process (1 on
+                # Windows, -9 on POSIX). Passing that through would report a
+                # timeout as an ordinary crash, so map it to the documented
+                # timeout code instead.
+                return {
+                    "success": False,
+                    "output": result.stdout,
+                    "error": result.stderr or f"Execution timed out after {timeout}s.",
+                    "exit_code": TIMEOUT_EXIT_CODE,
+                    "execution_time": round(result.duration_ms / 1000, 4),
+                }
             return {
                 "success": result.ok,
                 "output": result.stdout,
@@ -122,7 +140,7 @@ def run_code(
         elapsed = time.perf_counter() - t0
         return _failure(
             f"Execution timed out after {timeout}s.",
-            exit_code=124,
+            exit_code=TIMEOUT_EXIT_CODE,
             elapsed=elapsed,
         )
     except OSError as exc:

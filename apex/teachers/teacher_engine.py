@@ -60,67 +60,433 @@ class LessonContent:
     tts_voice: str
 
 
-# ── Topic knowledge base ─────────────────────────────────────────────────────
+# â”€â”€ Topic knowledge base â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 # Simple topic descriptions used to generate personality-appropriate content.
 # In a full system this would come from a knowledge graph or LLM.
-_TOPIC_SUMMARY: dict[str, str] = {
-    "variables": "A variable is a named container that stores a value in memory. You can think of it as a labeled box where you keep data that your program can use and modify.",
-    "functions": "A function is a reusable block of code that performs a specific task. It takes inputs (parameters), does something with them, and returns an output.",
-    "loops": "A loop is a control structure that repeats a block of code multiple times. It lets you automate repetitive tasks without writing the same code over and over.",
-    "conditionals": "Conditionals let your program make decisions. They execute different code paths depending on whether a condition is true or false.",
-    "classes": "A class is a blueprint for creating objects. It defines what data an object holds and what behaviors it can perform.",
-    "arrays": "An array is a collection that stores multiple values of the same type in a contiguous block of memory, accessible by index.",
-    "recursion": "Recursion is when a function calls itself to solve a smaller version of the same problem, until it reaches a base case that stops the cycle.",
-    "sorting": "Sorting is the process of arranging elements in a specific order—usually ascending or descending—using algorithms like bubble sort, merge sort, or quicksort.",
+
+
+@dataclass(frozen=True)
+class _Concept:
+    """Topic-specific teaching material, shared across every teacher voice.
+
+    The four teachers differ in *how* they speak, not in *what* they are
+    talking about.  Previously each generator hardcoded a "box labelled
+    age" analogy, so a lesson on recursion or exception handling came out
+    describing variables.  Keeping the subject matter here and the voice in
+    the generators fixes that and stops the four copies drifting apart.
+
+    Attributes:
+        summary: One-sentence definition.
+        analogy: A non-technical comparison to anchor the idea.
+        example: A short concrete illustration, usually code.
+        misconception: The wrong mental model learners arrive with.
+    """
+
+    summary: str
+    analogy: str
+    example: str
+    misconception: str
+
+
+_CONCEPTS: dict[str, _Concept] = {
+    "variables": _Concept(
+        summary=(
+            "A variable is a named container that holds a value in memory, so "
+            "the same program can refer to that value by name instead of "
+            "repeating the literal everywhere."
+        ),
+        analogy=(
+            "A labelled box on a desk. The label stays put while what is "
+            "inside gets swapped out, and anything in the room can point at "
+            "the label rather than reaching into the box."
+        ),
+        example=(
+            "score = 0          # bind the name 'score' to 0\n"
+            "score = score + 10 # rebind it to 10\n"
+            "print(score)       # 10 -- the label never moved"
+        ),
+        misconception=(
+            "That a variable is a box whose contents are fixed at creation, so "
+            "'score = 10' should look different from 'score = score + 10'."
+        ),
+    ),
+    "functions": _Concept(
+        summary=(
+            "A function is a named, reusable block of code that takes inputs, "
+            "does one job, and returns a result -- so the logic is written "
+            "once and called from anywhere."
+        ),
+        analogy=(
+            "A recipe. The ingredients go in, the dish comes out, and you never "
+            "rewrite the method when you cook it again for someone else."
+        ),
+        example=(
+            "def greet(name: str, greeting: str = 'Hello') -> str:\n"
+            "    return f'{greeting}, {name}!'\n\n"
+            "greet('Ada')            # 'Hello, Ada!'\n"
+            "greet('Ada', 'Hi')      # 'Hi, Ada!'"
+        ),
+        misconception=(
+            "That a function is a one-time script that runs when you define it, "
+            "rather than a body that waits to be called."
+        ),
+    ),
+    "loops": _Concept(
+        summary=(
+            "A loop repeats a block of code while a condition holds, so a "
+            "thousand similar steps cost one written step."
+        ),
+        analogy=(
+            "A row of bricks. Laying one is a single action; laying a thousand "
+            "is the same action repeated until the row is long enough."
+        ),
+        example=(
+            "total = 0\n"
+            "for i in range(1, 6):\n"
+            "    total += i\n"
+            "print(total)  # 15 -- the body ran five times"
+        ),
+        misconception=(
+            "That a loop is a faster way to write the same repeated lines, "
+            "rather than a way to make the repetition happen at all."
+        ),
+    ),
+    "conditionals": _Concept(
+        summary=(
+            "A conditional chooses between code paths by testing a condition, "
+            "so a program can behave differently depending on its input."
+        ),
+        analogy=(
+            "A junction with a sign. The road is the same; which way you end "
+            "up depends on which branch you took at the decision point."
+        ),
+        example=(
+            "n = 7\n"
+            "if n % 2 == 0:\n"
+            "    print('even')\n"
+            "else:\n"
+            "    print('odd')   # this branch runs"
+        ),
+        misconception=(
+            "That a conditional evaluates its test once and for all, rather "
+            "than each time control reaches it -- which is what makes it safe "
+            "to loop over changing data."
+        ),
+    ),
+    "classes": _Concept(
+        summary=(
+            "A class is a blueprint that bundles the data an object holds "
+            "together with the behaviour that acts on it."
+        ),
+        analogy=(
+            "An architectural plan plus the building made from it. The plan "
+            "fixes the rooms and what each one is for; each building follows "
+            "the plan but is a distinct place."
+        ),
+        example=(
+            "class Rectangle:\n"
+            "    def __init__(self, width: float, height: float) -> None:\n"
+            "        self.width = width\n"
+            "        self.height = height\n\n"
+            "    @property\n"
+            "    def area(self) -> float:\n"
+            "        return self.width * self.height"
+        ),
+        misconception=(
+            "That the class itself is the object, so there is only ever one "
+            "rectangle rather than one blueprint and many rectangles."
+        ),
+    ),
+    "arrays": _Concept(
+        summary=(
+            "An array stores many values of one type in order, so the program "
+            "can hold a collection and reach any element by its position."
+        ),
+        analogy=(
+            "A row of numbered lockers. The lockers are the same size, they "
+            "sit side by side, and the number on each is its index."
+        ),
+        example=(
+            "values = [10, 20, 30]\n"
+            "print(values[0])    # 10 -- indexing starts at zero\n"
+            "print(values[-1])   # 30 -- -1 means 'last'"
+        ),
+        misconception=(
+            "That the first element is at index 1, so a list of n items can be "
+            "indexed up to n. It cannot: valid indices run 0 to n - 1."
+        ),
+    ),
+    "recursion": _Concept(
+        summary=(
+            "Recursion is solving a problem by calling the same solution on a "
+            "smaller version of it, until a base case stops the shrinking."
+        ),
+        analogy=(
+            "A set of nesting dolls. You open one to find a smaller one "
+            "inside, and you know to stop when the smallest one has nothing "
+            "left inside it."
+        ),
+        example=(
+            "def fib(n: int) -> int:\n"
+            "    if n < 2:              # base case: stop shrinking\n"
+            "        return n\n"
+            "    return fib(n - 1) + fib(n - 2)\n\n"
+            "fib(10)  # 55"
+        ),
+        misconception=(
+            "That recursion is just a loop written awkwardly, and that it is "
+            "always slower. It is a different idea: the call stack carries "
+            "the pending work, which is why it suits problems defined in "
+            "terms of themselves."
+        ),
+    ),
+    "sorting": _Concept(
+        summary=(
+            "Sorting rearranges a collection into order, and the choice of "
+            "algorithm trades simplicity against how fast the work grows as "
+            "the input gets bigger."
+        ),
+        analogy=(
+            "Sorting a hand of cards. The method you choose -- scan and swap "
+            "neighbours, split and merge, partition around a pivot -- decides "
+            "how much lifting you do as the hand grows."
+        ),
+        example=(
+            "nums = [3, 1, 2]\n"
+            "print(sorted(nums))   # [1, 2, 3] -- a new list\n"
+            "nums.sort()           # sorts in place, returns None\n"
+            "print(sorted(words, key=len))  # order by length"
+        ),
+        misconception=(
+            "That sort() returns the sorted list. It sorts in place and "
+            "returns None, which is why `nums = nums.sort()` quietly assigns "
+            "None."
+        ),
+    ),
+    "strings": _Concept(
+        summary=(
+            "A string is an immutable sequence of characters, so you read "
+            "position by position and every 'change' actually builds a new "
+            "string."
+        ),
+        analogy=(
+            "A written word on paper. You can read any letter by counting "
+            "across, but you cannot rub one out -- editing means writing a "
+            "fresh copy."
+        ),
+        example=(
+            "text = 'apex'\n"
+            "print(text[0])      # 'a'\n"
+            "print(text[1:])     # 'pex'\n"
+            "print(len(text))    # 4\n"
+            "text += ' engine'   # builds a new string"
+        ),
+        misconception=(
+            "That strings behave like lists you can edit in place, so "
+            "text[0] = 'A' feels like it should work. It raises instead."
+        ),
+    ),
+    "dictionaries": _Concept(
+        summary=(
+            "A dictionary maps keys to values, so the program can look data up "
+            "by name in constant time instead of scanning for a match."
+        ),
+        analogy=(
+            "A phone book. You do not read every entry to find a name; you "
+            "open at the letter and the number is there."
+        ),
+        example=(
+            "ages = {'ada': 36, 'grace': 45}\n"
+            "print(ages['ada'])        # 36\n"
+            "ages['alan'] = 41         # adds a key\n"
+            "print(ages.get('nobody')) # None -- no KeyError"
+        ),
+        misconception=(
+            "That a dictionary is an ordered list that happens to use names, "
+            "so a missing key should fall back to a nearby position."
+        ),
+    ),
+    "exceptions": _Concept(
+        summary=(
+            "An exception is the runtime signal that an operation could not "
+            "complete, and handling it means deciding what a sensible "
+            "fallback is instead of letting the program die."
+        ),
+        analogy=(
+            "A locked door on your route. Either you have the key and go "
+            "through, or you planned a different route in advance -- "
+            "discovering the door mid-journey with no plan is the crash."
+        ),
+        example=(
+            "a, b = 7, 0\n"
+            "if b == 0:\n"
+            "    print('undefined')\n"
+            "else:\n"
+            "    print(a / b)   # 3.5 -- / keeps the fraction"
+        ),
+        misconception=(
+            "That an error is a bug to be avoided at all costs, rather than an "
+            "expected outcome for input you did not anticipate -- so the "
+            "response is a bare 'undefined' with no path forward."
+        ),
+    ),
+    "testing": _Concept(
+        summary=(
+            "A test states what your code should do for a known input, so a "
+            "change that breaks it is caught immediately rather than in "
+            "production."
+        ),
+        analogy=(
+            "A weigh-check on a production line. You are not inspecting every "
+            "item by eye; you are confirming the scale still reads true after "
+            "it was adjusted."
+        ),
+        example=(
+            "def test_sum_digits() -> None:\n"
+            "    assert sum_digits('123') == 6\n"
+            "    assert sum_digits('0') == 0   # the edge case"
+        ),
+        misconception=(
+            "That tests exist to show the code works. They exist to fail when "
+            "it stops working, so a test that has never failed is not yet "
+            "proving anything."
+        ),
+    ),
+    "io": _Concept(
+        summary=(
+            "Input reads values a program was given from the outside; output "
+            "writes results back. It is the boundary where a program meets "
+            "the person or system using it."
+        ),
+        analogy=(
+            "A service counter. Something is handed in on one side and "
+            "something is handed back on the other; the work in between never "
+            "touches the customer directly."
+        ),
+        example=(
+            "name = input()            # reads one line, newline removed\n"
+            "print(f'Hello, {name}!')  # writes one line"
+        ),
+        misconception=(
+            "That input() keeps the trailing newline, so output lines need a "
+            "strip(). input() already discards it."
+        ),
+    ),
+    "arithmetic": _Concept(
+        summary=(
+            "Arithmetic operators combine numbers, and the difference between "
+            "them -- exact division versus integer division -- changes the "
+            "answer."
+        ),
+        analogy=(
+            "Sharing a cake. Cutting it into equal whole slices is integer "
+            "division; keeping the crumbs and the fraction is true division."
+        ),
+        example=(
+            "print(7 / 2)   # 3.5  -- keeps the fraction\n"
+            "print(7 // 2)  # 3    -- truncates\n"
+            "print(7 % 2)   # 1    -- the remainder"
+        ),
+        misconception=(
+            "That / and // are interchangeable, so a program that 'works' on "
+            "the whole numbers it was tried with silently truncates on the "
+            "first fractional result."
+        ),
+    ),
 }
 
 
-def _get_topic_summary(topic: str) -> str:
-    """Return a summary for the topic, or a generic fallback."""
-    return _TOPIC_SUMMARY.get(
-        topic.lower(),
-        f"{topic} is a fundamental concept in computer science that forms the building block for more advanced topics.",
+def _concept(topic: str) -> _Concept:
+    """Return the concept pack for *topic*, or a sensible generic one.
+
+    Falls back on a normalised key so 'Recursion', 'recursion' and
+    ' recursion ' all resolve, then on a stub built from the topic name so
+    an unknown topic still reads sensibly.
+    """
+    key = topic.strip().lower()
+    if key in _CONCEPTS:
+        return _CONCEPTS[key]
+    for name, concept in _CONCEPTS.items():
+        if name in key or key in name:
+            return concept
+    return _Concept(
+        summary=f"{topic} is a distinct idea in programming, and it is worth "
+        f"pinning down before building on it.",
+        analogy=f"Think of {topic} the way you would think of any tool: it "
+        f"does one job, and reaching for it is a deliberate choice.",
+        example=f"# Work through {topic} on paper first: what goes in, what "
+        f"comes out, and what the smallest complete case looks like.",
+        misconception=f"The common trap with {topic} is reaching for it when a "
+        f"simpler construct would do. Knowing when not to use it matters as "
+        f"much as knowing how.",
     )
 
 
-# ── Teacher voice generators ─────────────────────────────────────────────────
+
+# â”€â”€ Teacher voice generators â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+
+def _misconception_clause(concept: _Concept) -> str:
+    """Return the misconception as a clause that reads inside a sentence.
+
+    The stored text is written as a standalone sentence ("That a function is
+    a one-time script...") so it stands alone in a drill prompt. Embedding
+    it after a lead-in needs the leading "That " dropped, otherwise the
+    sentence reads "believing that that a function is...".
+    """
+    text = concept.misconception
+    if text.startswith("That "):
+        text = text[len("That ") :]
+    text = text[0].lower() + text[1:]
+    # Callers append their own sentence break; the stored text already has one.
+    return text.rstrip(". ")
+
+
+def _drills(topic: str, concept: _Concept) -> list[str]:
+    """Three practice tasks derived from the topic's own material.
+
+    The third one exists on purpose: naming the misconception a learner
+    walked in with and asking them to defeat it is worth more than another
+    restatement of the definition.
+    """
+    return [
+        f"Explain {topic} out loud in your own words, then check yourself "
+        f"against the definition above and note where you drifted.",
+        f"Type the example in line by line and predict the output before you "
+        f"run it. Then change one value and predict again.",
+        f"Defeat this wrong assumption specifically: {concept.misconception}",
+    ]
+
+
+# The `questions` key is deliberately absent from these return values.
+# ``instruct`` builds LessonContent.questions from
+# ``generate_socratic_questions``, which has its own per-style question
+# banks, so a second copy here was never read.
 
 
 def _generate_mentor_content(
     teacher: TeacherProfile, topic: str, state: LearnerState | None
 ) -> dict[str, Any]:
     """Generate content in The Mentor's Socratic, patient voice."""
-    summary = _get_topic_summary(topic)
+    concept = _concept(topic)
     explanation = (
-        f"Let's explore {topic} together. {summary}\n\n"
-        f"I'd like you to think about this: what happens when we use a variable "
-        f"before giving it a value? Take a moment to reason through it."
+        f"Let's explore {topic} together. {concept.summary}\n\n"
+        f"Before we go further, I want to check something. A learner usually "
+        f"arrives believing that {_misconception_clause(concept)}. "
+        f"Work through the example and tell me whether that belief survives. "
+        f"What do you think happens if it does not?"
     )
-    example = (
-        "Imagine you have a box labeled 'age'. You can put the number 25 in it, "
-        "then later change it to 26. The box (variable) stays the same, but what's "
-        "inside can change. That's the essence of a variable."
-    )
-    questions = [
-        "What do you think would happen if we tried to use a variable that was never created?",
-        "How would you explain a variable to someone who has never programmed before?",
-        "Can you think of a real-world analogy for storing and retrieving data?",
-    ]
-    exercises = [
-        "Create a variable called 'score' and set it to 0, then increment it by 10.",
-        "Write a short paragraph explaining what a variable is in your own words.",
-        "Predict what this code outputs: x = 5; y = x; x = 10; print(y)",
-    ]
+    example = f"{concept.analogy}\n\nIn code:\n{concept.example}"
     encouragement = (
-        "You're asking great questions—that's exactly how deep understanding grows. "
-        "Keep exploring, and don't rush to conclusions. The journey matters as much as the answer."
+        "You're asking the right questions, and that is exactly how durable "
+        "understanding forms. Keep exploring, and resist the urge to be "
+        "certain too early. The reasoning matters more than the answer."
     )
     return {
         "explanation": explanation,
         "example": example,
-        "questions": questions,
-        "practice_exercises": exercises,
+        "practice_exercises": _drills(topic, concept),
         "encouragement": encouragement,
     }
 
@@ -129,35 +495,23 @@ def _generate_drill_sergeant_content(
     teacher: TeacherProfile, topic: str, state: LearnerState | None
 ) -> dict[str, Any]:
     """Generate content in The Drill Sergeant's direct, no-nonsense voice."""
-    summary = _get_topic_summary(topic)
+    concept = _concept(topic)
     explanation = (
-        f"{topic.capitalize()}. {summary}\n\n"
-        f"Here's what you need to know: a variable is declared with a name and "
-        f"assigned a value. That's it. No magic. Now let's drill it."
+        f"{topic.capitalize()}. {concept.summary}\n\n"
+        f"That is the whole idea. No magic, no hidden rules. Three things you "
+        f"get wrong about it, every time: {_misconception_clause(concept)}. "
+        f"Now drill it."
     )
-    example = (
-        "Example: int count = 0; count = count + 1; // count is now 1. "
-        "Simple. Do it again until you can't get it wrong."
-    )
-    questions = [
-        "What is the syntax for declaring a variable? Answer now.",
-        "What happens if you use a variable without initializing it? Don't guess—tell me.",
-        "Write down three valid variable names and three invalid ones. Go.",
-    ]
-    exercises = [
-        "Declare three variables of different types and assign them values. Now.",
-        "Write a program that swaps the values of two variables. Do it without looking at notes.",
-        "Identify the error in this code: x == 5; (fix it and explain why it was wrong).",
-    ]
+    example = f"{concept.example}\n\nRun it. Change one value. Run it again."
     encouragement = (
-        "Good work—if you did it right. Mistakes mean you need more practice, not that "
-        "you're incapable. Drill it again. Excellence is a habit, not an accident."
+        "Good work -- if you did it right. A mistake here means you need more "
+        "practice, not that you are incapable of it. Drill it again. "
+        "Excellence is a habit, not an accident."
     )
     return {
         "explanation": explanation,
         "example": example,
-        "questions": questions,
-        "practice_exercises": exercises,
+        "practice_exercises": _drills(topic, concept),
         "encouragement": encouragement,
     }
 
@@ -166,36 +520,26 @@ def _generate_guide_content(
     teacher: TeacherProfile, topic: str, state: LearnerState | None
 ) -> dict[str, Any]:
     """Generate content in The Guide's inquiry-based, resource-oriented voice."""
-    summary = _get_topic_summary(topic)
+    concept = _concept(topic)
     explanation = (
-        f"Great, we're looking at {topic}. {summary}\n\n"
-        f"Here's a question to orient us: what do you already know about this topic? "
-        f"And what's still unclear? There's no rush—we'll find the resources that help."
+        f"Great, we're looking at {topic}. {concept.summary}\n\n"
+        f"Two questions to orient us before we go further: what do you already "
+        f"assume about {topic}, and which part of that assumption are you "
+        f"least sure of? Worth knowing in advance: "
+        f"{_misconception_clause(concept)}. There is no rush -- we will find "
+        f"the material that actually answers it."
     )
-    example = (
-        "Let's say you want to track a user's score in a game. You'd create a variable "
-        "called 'score' and update it as the game progresses. The variable is your tool "
-        "for remembering state. Want to see how this connects to other concepts? I can point you to resources on memory management and scope."
-    )
-    questions = [
-        "What resources have you found helpful when learning similar topics?",
-        "Where do you feel the most uncertainty about this concept?",
-        "If you were to explain this to a peer, which part would you find hardest to describe?",
-    ]
-    exercises = [
-        "Explore the official documentation for variables in your language of choice. Note three things you learned.",
-        "Find a real-world code example that uses variables in an interesting way and explain what it does.",
-        "Map out how variables relate to the concept of 'state' in programming. Draw a diagram if it helps.",
-    ]
+    example = f"{concept.analogy}\n\nIn code:\n{concept.example}"
     encouragement = (
-        "You're on the right track. Learning is about finding your own path through the material. "
-        "I'm here to point you toward resources and help you ask better questions. What would you like to explore next?"
+        "You're on the right track. Learning is about finding your own path "
+        "through the material rather than being handed one. I am here to point "
+        "you at the right resources and help you ask sharper questions. What "
+        "would you like to look into next?"
     )
     return {
         "explanation": explanation,
         "example": example,
-        "questions": questions,
-        "practice_exercises": exercises,
+        "practice_exercises": _drills(topic, concept),
         "encouragement": encouragement,
     }
 
@@ -204,45 +548,31 @@ def _generate_storyteller_content(
     teacher: TeacherProfile, topic: str, state: LearnerState | None
 ) -> dict[str, Any]:
     """Generate content in The Storyteller's narrative, analogy-rich voice."""
-    summary = _get_topic_summary(topic)
+    concept = _concept(topic)
     explanation = (
-        f"Ah, {topic}! Let me take you back to a time when programmers had to punch cards "
-        f"by hand—each hole a memory cell, each card a variable. {summary}\n\n"
-        f"The story of variables begins with Ada Lovelace, who imagined a machine that could "
-        f"manipulate symbols, not just numbers. She called them 'variables' because they could "
-        f"vary—change as the computation unfolded. That idea echoes through every program you write today."
+        f"Ah, {topic}! Every concept worth learning arrived wrapped in a story, "
+        f"and this one is no exception. {concept.summary}\n\n"
+        f"Long before anyone wrote {topic} as code, people were doing it by "
+        f"hand: {concept.analogy[0].lower()}{concept.analogy[1:]} The craft "
+        f"survived the change. What you are learning is that older instinct, "
+        f"made precise."
     )
-    example = (
-        "Picture a medieval scribe maintaining a ledger. Each line has a label—'gold coins,' "
-        "'silver rings,' 'land acres'—and a value that changes as trades happen. The labels are "
-        "your variable names; the values are what's stored. The scribe doesn't rewrite the label, "
-        "just updates the number. That's a variable in action, a story as old as record-keeping itself."
-    )
-    questions = [
-        "What other stories from history remind you of how we store and change data today?",
-        "If variables were characters in a novel, what kind of personalities would they have?",
-        "How might the concept of a variable appear in a story about a journey or transformation?",
-    ]
-    exercises = [
-        "Write a short story (2-3 paragraphs) where a variable is a character that changes throughout the plot.",
-        "Find an analogy from nature, mythology, or daily life that captures what a variable does.",
-        "Explain variables to a friend using only a story—no code, no technical terms.",
-    ]
+    example = f"{concept.analogy}\n\nWritten out, the same idea reads:\n{concept.example}"
     encouragement = (
-        f"Every great concept has a story, and you're now part of that story. "
-        f"The beauty of {topic} isn't just in how it works—it's in why it mattered to those "
-        f"who came before us, and how it will shape what comes next. Keep wondering."
+        f"Every great concept has a story, and you are now part of this one. "
+        f"The appeal of {topic} is not only how it works but why it mattered to "
+        f"the people who worked it out first, and what it will let you build "
+        f"next. Keep wondering."
     )
     return {
         "explanation": explanation,
         "example": example,
-        "questions": questions,
-        "practice_exercises": exercises,
+        "practice_exercises": _drills(topic, concept),
         "encouragement": encouragement,
     }
 
 
-# ── Content generation dispatch ──────────────────────────────────────────────
+# â”€â”€ Content generation dispatch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 _STYLE_DISPATCH: dict[str, Callable[[TeacherProfile, str, LearnerState | None], dict[str, Any]]] = {
     "socratic": _generate_mentor_content,
@@ -260,7 +590,7 @@ def _generate_content(
     return generator(teacher, topic, state)
 
 
-# ── Socratic question generation ─────────────────────────────────────────────
+# â”€â”€ Socratic question generation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 _FOUNDATION_QUESTIONS: dict[str, list[str]] = {
     "variables": [
@@ -338,28 +668,28 @@ def generate_socratic_questions(teacher: TeacherProfile, topic: str, count: int 
     return [f"Imagine this: {q}" for q in selected]
 
 
-# ── Error diagnosis ───────────────────────────────────────────────────────────
+# â”€â”€ Error diagnosis â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 _CORRECTION_TEMPLATES: dict[str, str] = {
     "socratic": (
         "I notice you ran into a challenge with {error}. That's actually a great learning moment. "
         "Let's think about what might have caused that. What did you expect to happen, and what actually happened? "
         "Often the gap between expectation and reality is where the real learning lives. "
-        "Take a moment to trace through your logic—what assumption might have led you astray?"
+        "Take a moment to trace through your logicâ€”what assumption might have led you astray?"
     ),
     "direct": (
-        "Error detected: {error}. Here's the fix—{correction}. "
+        "Error detected: {error}. Here's the fixâ€”{correction}. "
         "You need to understand why that was wrong. The correct approach is {correct_approach}. "
         "Now repeat it until you get it right. No shortcuts."
     ),
     "inquiry": (
-        "Interesting—you encountered {error}. Let's unpack that together. "
+        "Interestingâ€”you encountered {error}. Let's unpack that together. "
         "What was your thinking when you wrote that code? There's usually a reasonable intuition behind a mistake. "
         "Let's look at what the code actually did versus what you intended. "
         "I'd suggest checking {resource} for a deeper dive into this area."
     ),
     "narrative": (
-        "Ah, {error}—a twist in our story! Even the greatest programmers have stumbled here. "
+        "Ah, {error}â€”a twist in our story! Even the greatest programmers have stumbled here. "
         "Let me tell you about a time when a similar mistake taught someone an invaluable lesson. "
         "The lesson? {lesson}. So next time, remember: {wisdom}."
     ),
@@ -378,7 +708,7 @@ def diagnose_errors(teacher: TeacherProfile, errors: list[str]) -> str:
     """
     if not errors:
         return (
-            "No errors to address—excellent work! Keep up this focused approach. "
+            "No errors to addressâ€”excellent work! Keep up this focused approach. "
             "If anything feels uncertain, remember that asking questions is a sign of engagement, not weakness."
         )
 
@@ -392,26 +722,18 @@ def diagnose_errors(teacher: TeacherProfile, errors: list[str]) -> str:
     )
 
     if teacher.teaching_style == "narrative":
-        # Storyteller uses analogies
-        lesson = {
-            "socratic": "the value of pausing to question your assumptions before acting.",
-            "direct": "precision matters—every character counts.",
-            "inquiry": "understanding the 'why' behind an error prevents it from recurring.",
-            "narrative": "even mistakes are chapters in the larger story of mastery.",
-        }.get(teacher.teaching_style, "every challenge is a chance to grow.")
-
-        wisdom = {
-            "socratic": "the answer is often hidden in the question you haven't asked yet.",
-            "direct": "slow is smooth, and smooth is fast.",
-            "inquiry": "the best resource is the one you haven't discovered yet.",
-            "narrative": "every great story has a turning point—this is yours.",
-        }.get(teacher.teaching_style, "keep going.")
-
-        return template.format(
+        # The Storyteller has one lesson and one piece of wisdom of its own.
+        # (These were previously looked up in tables keyed by
+        # teaching_style from inside the `== "narrative"` branch, so the
+        # other three entries could never be reached.)
+        result = template.format(
             error=primary_error,
-            lesson=lesson,
-            wisdom=wisdom,
+            lesson="even mistakes are chapters in the larger story of mastery.",
+            wisdom="every great story has a turning point, and this is yours.",
         )
+        if extra_errors:
+            result += f"\n\nAnd the road ahead has more trials still: {'; '.join(extra_errors)}."
+        return result
 
     # For other styles, provide corrective guidance
     correction = _suggest_correction(primary_error)
@@ -488,7 +810,7 @@ def _suggest_resource(error: str) -> str:
     return "the relevant section in your learning materials"
 
 
-# ── TTS voice mapping ────────────────────────────────────────────────────────
+# â”€â”€ TTS voice mapping â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 _VOICE_MAP: dict[str, str] = {
     "alloy": "alloy",
@@ -513,7 +835,7 @@ def get_tts_voice(teacher: TeacherProfile) -> str:
     return _VOICE_MAP.get(preferred, "alloy")
 
 
-# ── Main instruction entry point ─────────────────────────────────────────────
+# â”€â”€ Main instruction entry point â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def instruct(
@@ -561,3 +883,4 @@ def instruct(
         encouragement=base["encouragement"],
         tts_voice=get_tts_voice(teacher),
     )
+

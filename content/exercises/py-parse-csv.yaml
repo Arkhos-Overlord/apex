@@ -1,0 +1,78 @@
+id: py-parse-csv
+title: Tolerant CSV Reader
+skills: [data-structures, error-handling]
+difficulty: 4
+prompt: |
+  Read `name,score` records from standard input until end of file and print
+  the name with the highest score.
+
+  Rules:
+  - Each line is `name,score`. Names contain no commas.
+  - Skip blank lines and any line that is not two comma-separated fields --
+    print nothing for those, do not abort the whole run.
+  - Skip a record whose score is not a valid integer.
+  - Print `name score` for the winning record, separated by a single space.
+  - If no valid record was read, print `no data`.
+  - Input is at least one line.
+
+  This is the exercise where an unhandled exception costs you every point:
+  the malformed lines are the point, not an accident.
+hints:
+  - "Read every line from sys.stdin, not just the first one."
+  - "Wrap each record in try/except ValueError and `continue` on failure, so one bad line does not end the run."
+  - "Keep a running best as a (name, score) pair and compare with >."
+starter: |
+  import sys
+  line = sys.stdin.readline().strip()
+  name, score = line.split(",")
+  print(name, score)
+solution: |
+  import sys
+
+  best_name = ""
+  best_score = None
+
+  for line in sys.stdin:
+      line = line.strip()
+      if not line:
+          continue
+      parts = line.split(",")
+      if len(parts) != 2:
+          continue
+      name, raw_score = parts[0].strip(), parts[1].strip()
+      try:
+          score = int(raw_score)
+      except ValueError:
+          continue
+      if best_score is None or score > best_score:
+          best_name, best_score = name, score
+
+  if best_score is None:
+      print("no data")
+  else:
+      print(best_name, best_score)
+tests:
+  - input: |
+      ada,10
+      grace,20
+    expected: "grace 20"
+    hidden: false
+  - input: |
+      ada,notanumber
+      grace,20
+    expected: "grace 20"
+    hidden: false
+  - input: |
+      ada,10
+      broken line
+      grace,20
+    expected: "grace 20"
+    hidden: true
+  - input: |
+      a,1
+      b,1
+    expected: "a 1"
+    hidden: true
+  - input: "garbage\n"
+    expected: "no data"
+    hidden: true

@@ -326,7 +326,23 @@ class DockerRunner:
     # ------------------------------------------------------------------
 
     def _build_cmd(self, script_path: str) -> list[str]:
+        """Return the argv that runs the caller's script inside the container.
+
+        The script is bind-mounted read-only rather than piped in, for two
+        reasons.  Piping would consume the container's stdin, which is the
+        channel the learner's own program needs to read test data from.
+        And a bind mount puts the code on disk where ``python`` can run it
+        directly, instead of needing to smuggle it through ``python -c``.
+
+        This method used to name ``/tmp/code.py`` while the script sat in a
+        host temp directory and was never mounted or copied, so the
+        container could not possibly find it: every run failed with a
+        file-not-found from the interpreter.
+        """
         limits = self.limits
+        host_path = os.path.abspath(script_path)
+        container_path = "/sandbox/apex_run.py"
+
         args: list[str] = [
             "docker",
             "run",
@@ -335,24 +351,29 @@ class DockerRunner:
             "--read-only",
             "--user=65534:65534",
             "--pids-limit=16",
-            "--memory=" + (f"{int(limits.memory_mb)}m" if limits.memory_mb else "128m"),
+            f"--memory={int(limits.memory_mb)}m" if limits.memory_mb else "--memory=128m",
+            # The only writable path the program gets. The script itself is
+            # mounted read-only so the code cannot rewrite itself.
+            "--tmpfs=/tmp:rw,noexec,nosuid,size=16m",
+            f"--volume={host_path}:{container_path}:ro",
+            "--workdir=/tmp",
         ]
         if limits.cpu_s:
-            # Docker CPU quota: period=100000, quota = cpu_s * 100000
-            quota_ns = int(limits.cpu_s * 1_000_000)
-            args.extend(["--cpu-period=100000", f"--cpu-quota={quota_ns}"])
+            # Docker CPU quota: period=100000us, quota = cpu_s * period
+            args.extend(["--cpu-period=100000", f"--cpu-quota={int(limits.cpu_s * 100_000)}"])
         args.extend(
             [
                 "--cap-drop=ALL",
+                "--security-opt=no-new-privileges",
                 self.image,
                 "python",
                 "-I",
-                "-S",
                 "-B",
-                "/tmp/code.py",
+                container_path,
             ]
         )
         return args
+
 
 
 # ---------------------------------------------------------------------------

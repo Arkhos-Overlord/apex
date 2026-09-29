@@ -1,0 +1,39 @@
+id: py-count-vowels
+title: Counting Vowels
+skills: [strings, loops]
+difficulty: 2
+prompt: |
+  Read one line of text and print how many vowels it contains.
+
+  Rules:
+  - Count `a`, `e`, `i`, `o` and `u`, in either case.
+  - Consonants, spaces and punctuation do not count.
+  - An empty line contains zero vowels.
+
+  The starter counts the total character count instead.
+hints:
+  - "A string is a sequence, so `for ch in text` walks one character at a time."
+  - "Normalise the case with ch.lower() before comparing, or compare against both cases."
+starter: |
+  text = input()
+  print(len(text))
+solution: |
+  text = input().lower()
+  count = 0
+  for ch in text:
+      if ch in "aeiou":
+          count += 1
+  print(count)
+tests:
+  - input: "hello world\n"
+    expected: "3"
+    hidden: false
+  - input: "AEIOU\n"
+    expected: "5"
+    hidden: false
+  - input: "rhythm\n"
+    expected: "0"
+    hidden: true
+  - input: "Programming Is Fun\n"
+    expected: "5"
+    hidden: true

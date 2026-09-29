@@ -7,7 +7,9 @@ synthesis, PDF handout rendering, and markdown-to-exercise parsing.
 
 from __future__ import annotations
 
+import hashlib
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +24,22 @@ DIAGRAM_TYPE_KEYWORDS: dict[str, list[str]] = {
 }
 
 DEFAULT_TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "outputs"
+
+
+def _output_dir() -> Path:
+    """Directory that generated artefacts are written to.
+
+    ``APEX_OUTPUT_DIR`` overrides the default.  It exists so the test
+    suite can redirect writes into a tmp dir -- without it every PDF and
+    TTS stub produced by a test run lands in the real ``apex/outputs/``
+    tree, which is how that directory filled up with hundreds of
+    ``handout_<n>.pdf`` files.
+    """
+    override = os.environ.get("APEX_OUTPUT_DIR")
+    if override:
+        return Path(override)
+    return DEFAULT_TEMPLATE_DIR
+
 
 
 def _detect_diagram_type(topic: str) -> str:
@@ -139,6 +157,9 @@ def _build_mindmap_svg(topic: str) -> str:
 def generate_diagram(topic: str, style: str = "svg") -> str:
     """Generate an SVG diagram for the given topic.
 
+    The layout is chosen from keywords in *topic*, so "cache invalidation
+    tree" draws a tree and "auth flow" draws a flowchart.
+
     Parameters
     ----------
     topic:
@@ -146,8 +167,8 @@ def generate_diagram(topic: str, style: str = "svg") -> str:
         ``tree``, ``hierarchy``, ``mind``, ``map``) influence the layout
         algorithm automatically.
     style:
-        Graphical style hint. Only ``"svg"`` is implemented; other values
-        are treated as ``"svg"``.
+        Graphical style hint, accepted for call-site compatibility. Only
+        SVG output exists, so every value is treated as ``"svg"``.
 
     Returns
     -------
@@ -158,51 +179,14 @@ def generate_diagram(topic: str, style: str = "svg") -> str:
         topic = "Default Diagram"
 
     diagram_type = _detect_diagram_type(topic)
-
     builders: dict[str, Any] = {
         "flowchart": _build_flowchart_svg,
         "tree": _build_tree_svg,
         "mindmap": _build_mindmap_svg,
     }
+    builder = builders.get(diagram_type, _build_flowchart_svg)
 
-    svg_string: str
-    try:
-        import svgwrite
-
-        _svgwrite_available = True
-    except ImportError:
-        _svgwrite_available = False
-
-    if _svgwrite_available:
-        import svgwrite
-
-        dwg = svgwrite.Drawing(
-            filename="diagram.svg",
-            size=("400px", "200px"),
-            profile="tiny",
-        )
-        dwg.add(dwg.text(topic or "Diagram", insert=("200", "20"), fill="#0d47a1", font_size="16"))
-        dwg.add(
-            dwg.rect(
-                insert=("50", "40"),
-                size=("300", "40"),
-                fill="#e3f2fd",
-                stroke="#1565c0",
-                rx=8,
-                ry=8,
-            )
-        )
-        dwg.add(
-            dwg.text(
-                "Node", insert=("200", "65"), fill="#0d47a1", font_size="14", text_anchor="middle"
-            )
-        )
-        try:
-            svg_string = dwg.tostring()
-        except AttributeError:
-            svg_string = dwg.tostring()
-    else:
-        svg_string = builders.get(diagram_type, _build_flowchart_svg)(topic)
+    svg_string = builder(topic)
 
     if not svg_string or not svg_string.strip():
         svg_string = _build_flowchart_svg(topic or "Fallback")
@@ -372,7 +356,7 @@ def generate_voice(text: str, voice: str = "default") -> str:
         "HERMES_TTS_AVAILABLE is not set to 1 — writing text to a .txt stub instead of audio.",
         stacklevel=2,
     )
-    out_dir = DEFAULT_TEMPLATE_DIR
+    out_dir = _output_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
     safe_name = text[:32].replace(" ", "_").replace("/", "_") or "silence"
     stub_path = out_dir / f"{safe_name}.txt"
@@ -432,8 +416,173 @@ _TEMPLATE_CSS: dict[str, str] = {
 }
 
 
+# Per-template rendering config for the PDF path.  Keys mirror the intent of
+# the matching entry in _TEMPLATE_CSS: title colour, body size, and whether
+# the sheet is laid out in two columns.
+_TEMPLATE_PDF: dict[str, dict[str, Any]] = {
+    "handout": {"accent": "#0d47a1", "sub_accent": "#1565c0", "body_size": 11, "columns": 1},
+    "cheat_sheet": {"accent": "#0d47a1", "sub_accent": "#1565c0", "body_size": 8, "columns": 2},
+    "lesson_plan": {"accent": "#0d47a1", "sub_accent": "#1565c0", "body_size": 10, "columns": 1},
+}
+
+_INLINE_CODE = re.compile(r"`([^`]+)`")
+_BOLD = re.compile(r"\*\*([^*]+)\*\*")
+_ITALIC = re.compile(r"(?<![*\w])\*([^*\n]+)\*(?!\*)")
+
+
+def _html_to_reportlab(text: str) -> str:
+    """Convert a line of markdown to the inline markup reportlab understands.
+
+    reportlab's ``Paragraph`` accepts a small HTML subset (``<b>``, ``<i>``,
+    ``<br/>``, ``<font>``), so inline code and emphasis are translated into
+    tags and everything else is escaped.
+    """
+    out = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    out = _INLINE_CODE.sub(r'<font face="Courier">\1</font>', out)
+    out = _BOLD.sub(r"<b>\1</b>", out)
+    out = _ITALIC.sub(r"<i>\1</i>", out)
+    return out
+
+
+def _markdown_to_flowables(content: str, styles: Any) -> list[Any]:
+    """Turn markdown source into reportlab flowables.
+
+    Hand-rolled rather than routed through the HTML pipeline: reportlab
+    cannot consume the HTML that ``markdown.markdown`` produces, so the
+    only honest options are to parse the subset we emit or to give up on
+    headings and code formatting.
+    """
+    from reportlab.platypus import Paragraph, Preformatted, Spacer
+
+    flowables: list[Any] = []
+    lines = content.splitlines()
+    i = 0
+    in_code = False
+    code_buf: list[str] = []
+
+    while i < len(lines):
+        raw = lines[i]
+        stripped = raw.strip()
+
+        # Fenced code block
+        if stripped.startswith("```"):
+            if in_code:
+                flowables.append(Preformatted("\n".join(code_buf), styles["Code"]))
+                flowables.append(Spacer(1, 6))
+                code_buf = []
+                in_code = False
+            else:
+                in_code = True
+            i += 1
+            continue
+        if in_code:
+            code_buf.append(raw)
+            i += 1
+            continue
+
+        if not stripped:
+            i += 1
+            continue
+
+        if stripped.startswith("### "):
+            flowables.append(Paragraph(_html_to_reportlab(stripped[4:]), styles["H3"]))
+        elif stripped.startswith("## "):
+            flowables.append(Paragraph(_html_to_reportlab(stripped[3:]), styles["H2"]))
+        elif stripped.startswith("# "):
+            flowables.append(Paragraph(_html_to_reportlab(stripped[2:]), styles["H1"]))
+        elif stripped.startswith("> "):
+            flowables.append(Paragraph(_html_to_reportlab(stripped[2:]), styles["Quote"]))
+        elif stripped.startswith(("- ", "* ")):
+            flowables.append(Paragraph(_html_to_reportlab(stripped[2:]), styles["Bullet"]))
+        elif re.match(r"^\d+[.)]\s", stripped):
+            flowables.append(
+                Paragraph(_html_to_reportlab(re.sub(r"^\d+[.)]\s+", "", stripped)), styles["Bullet"])
+            )
+        elif stripped.startswith("|") or re.match(r"^[-:\s|]+$", stripped):
+            # Table rows: render as preformatted text rather than dropping them.
+            flowables.append(Paragraph(_html_to_reportlab(stripped), styles["Code"]))
+        else:
+            flowables.append(Paragraph(_html_to_reportlab(stripped), styles["Body"]))
+        flowables.append(Spacer(1, 4))
+        i += 1
+
+    if code_buf:
+        flowables.append(Preformatted("\n".join(code_buf), styles["Code"]))
+
+    return flowables
+
+
+def _build_pdf_styles(cfg: dict[str, Any]) -> Any:
+    """Build the reportlab stylesheet for one template."""
+    from reportlab.lib import colors
+    from reportlab.lib.styles import ParagraphStyle
+
+    body_size = cfg["body_size"]
+    return {
+        "H1": ParagraphStyle(
+            "H1",
+            fontName="Helvetica-Bold",
+            fontSize=body_size + 6,
+            leading=body_size + 10,
+            textColor=colors.HexColor(cfg["accent"]),
+            spaceAfter=8,
+        ),
+        "H2": ParagraphStyle(
+            "H2",
+            fontName="Helvetica-Bold",
+            fontSize=body_size + 2,
+            leading=body_size + 6,
+            textColor=colors.HexColor(cfg["sub_accent"]),
+            spaceBefore=8,
+            spaceAfter=4,
+        ),
+        "H3": ParagraphStyle(
+            "H3",
+            fontName="Helvetica-Bold",
+            fontSize=body_size,
+            leading=body_size + 4,
+            textColor=colors.HexColor(cfg["sub_accent"]),
+        ),
+        "Body": ParagraphStyle(
+            "Body",
+            fontName="Helvetica",
+            fontSize=body_size,
+            leading=body_size * 1.45,
+        ),
+        "Bullet": ParagraphStyle(
+            "Bullet",
+            fontName="Helvetica",
+            fontSize=body_size,
+            leading=body_size * 1.4,
+            leftIndent=14,
+            bulletIndent=4,
+        ),
+        "Quote": ParagraphStyle(
+            "Quote",
+            fontName="Helvetica-Oblique",
+            fontSize=body_size,
+            leading=body_size * 1.4,
+            leftIndent=12,
+            textColor=colors.HexColor("#555555"),
+        ),
+        "Code": ParagraphStyle(
+            "Code",
+            fontName="Courier",
+            fontSize=max(6.0, body_size - 2),
+            leading=max(7.0, (body_size - 2) * 1.3),
+            backColor=colors.HexColor("#f5f5f5"),
+            borderPadding=4,
+        ),
+    }
+
+
 def generate_pdf(content: str, template: str = "handout") -> str:
     """Render *content* (markdown) into a styled PDF handout.
+
+    The file name is derived from a SHA-256 digest of the content, so the
+    same content always maps to the same path.  The previous ``hash()``
+    naming was salted per process, which meant every run wrote a new file
+    for content it already had.
 
     Parameters
     ----------
@@ -447,67 +596,100 @@ def generate_pdf(content: str, template: str = "handout") -> str:
     -------
     str
         Absolute path to the generated PDF file.
+
+    Raises
+    ------
+    RuntimeError
+        If neither ``reportlab`` nor ``fpdf2`` is installed.  This used to
+        write the HTML source into a file named ``.pdf`` instead, which
+        produced a file that no PDF reader would open.
     """
     if not content:
         content = "_No content provided._"
 
-    css = _TEMPLATE_CSS.get(template, _TEMPLATE_CSS["handout"])
+    cfg = _TEMPLATE_PDF.get(template, _TEMPLATE_PDF["handout"])
+
+    out_dir = _output_dir()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256(f"{template}\x00{content}".encode("utf-8")).hexdigest()[:16]
+    pdf_path = out_dir / f"handout_{digest}.pdf"
 
     try:
-        import markdown
-
-        html_body = markdown.markdown(content, extensions=["tables", "fenced_code"])
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.units import cm
+        from reportlab.platypus import BaseDocTemplate, Frame, PageTemplate
     except ImportError:
-        html_body = content.replace("\\n", "<br/>")
+        return _generate_pdf_fpdf(content, cfg, pdf_path)
 
-    html_doc = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8"/>
-<style>{css}</style>
-</head>
-<body>
-{html_body}
-</body>
-</html>"""
+    styles = _build_pdf_styles(cfg)
+    margin = 1.2 * cm if cfg["columns"] == 2 else 2.0 * cm
+    page_w, page_h = A4
 
-    out_dir = DEFAULT_TEMPLATE_DIR
-    out_dir.mkdir(parents=True, exist_ok=True)
-    pdf_path = out_dir / f"handout_{abs(hash(content)) % 1_000_000}.pdf"
+    doc = BaseDocTemplate(
+        str(pdf_path),
+        pagesize=A4,
+        leftMargin=margin,
+        rightMargin=margin,
+        topMargin=margin,
+        bottomMargin=margin,
+        title="Apex handout",
+    )
 
+    if cfg["columns"] == 2:
+        # reportlab advances to the next frame when the current one fills,
+        # so a two-frame template is all a column layout needs.
+        gutter = 6
+        col_w = (page_w - 2 * margin - gutter) / 2
+        frames = [
+            Frame(margin, margin, col_w, page_h - 2 * margin, id="left"),
+            Frame(margin + col_w + gutter, margin, col_w, page_h - 2 * margin, id="right"),
+        ]
+        doc.addPageTemplates([PageTemplate(id="two-col", frames=frames)])
+    else:
+        doc.addPageTemplates(
+            [
+                PageTemplate(
+                    id="single",
+                    frames=[Frame(margin, margin, page_w - 2 * margin, page_h - 2 * margin, id="body")],
+                )
+            ]
+        )
+
+    story = _markdown_to_flowables(content, styles)
+    if not story:
+        from reportlab.platypus import Paragraph
+
+        story = [Paragraph(" ", styles["Body"])]
+
+    doc.build(story)
+    return str(pdf_path)
+
+
+def _generate_pdf_fpdf(content: str, cfg: dict[str, Any], pdf_path: Path) -> str:
+    """Render with fpdf2 when reportlab is unavailable.
+
+    fpdf2 has no HTML renderer worth using, so the markdown is flattened to
+    plain lines rather than pretending to honour the template CSS.
+    """
     try:
         from fpdf import FPDF
+    except ImportError as exc:
+        raise RuntimeError(
+            "PDF generation needs reportlab or fpdf2. Install one with "
+            "'pip install reportlab' (or 'pip install fpdf2')."
+        ) from exc
 
-        pdf = FPDF(orientation="P", format="A4")
-        pdf.set_auto_page_break(auto=True, margin=15)
-        pdf.set_margins(15, 15, 15)
-        pdf.add_page()
-        pdf.set_font("Courier", size=8)
-        pdf.write_html(html_body)
-        pdf.output(str(pdf_path))
-        return str(pdf_path)
-    except Exception as exc:  # noqa: BLE001
-        import warnings as _warnings
+    pdf = FPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_margins(15, 15, 15)
+    pdf.add_page()
+    pdf.set_font("Courier", size=max(6, int(cfg["body_size"]) - 3))
+    for line in content.splitlines():
+        stripped = re.sub(r"[*`#>]", "", line)
+        pdf.multi_cell(0, 5, stripped or " ")
+    pdf.output(str(pdf_path))
+    return str(pdf_path)
 
-        _warnings.warn(f"PDF generation failed: {exc}")
-        pdf_path.write_text(html_doc, encoding="utf-8")
-        return str(pdf_path)
-
-    try:
-        from reportlab.lib.pagesizes import A4  # noqa: I001
-        from reportlab.platypus import SimpleDocTemplate, Paragraph
-        from reportlab.lib.styles import getSampleStyleSheet
-
-        doc = SimpleDocTemplate(str(pdf_path), pagesize=A4)
-        styles = getSampleStyleSheet()
-        flowables: list[Any] = []
-        for line in html_body.split("<br/>"):
-            flowables.append(Paragraph(line.strip(), styles["Normal"]))
-        doc.build(flowables)
-        return str(pdf_path)
-    except ImportError:
-        pdf_path.write_text(html_doc, encoding="utf-8")
-        return str(pdf_path)
 
 
 def markdown_to_exercise(md: str) -> list[dict[str, str]]:

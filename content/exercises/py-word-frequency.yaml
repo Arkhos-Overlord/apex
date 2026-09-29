@@ -1,0 +1,48 @@
+id: py-word-frequency
+title: Most Common Word
+skills: [data-structures, strings]
+difficulty: 3
+prompt: |
+  Read a single line of space-separated words and print the most frequent
+  word together with how many times it appears.
+
+  Rules:
+  - Print `word count`, separated by a single space.
+  - Words are compared case-insensitively but printed lowercase.
+  - On a tie, print the alphabetically first word.
+  - The line always contains at least one word.
+
+  The starter counts characters within the first word, which is not the
+  same problem.
+hints:
+  - "collections.Counter(text.split()) counts the words for you."
+  - "max() with a key of (-count, word) breaks ties alphabetically, because the sort is ascending on a negated count."
+starter: |
+  text = input()
+  words = text.split()
+  first = words[0]
+  print(first, len(first))
+solution: |
+  from collections import Counter
+  import sys
+
+  text = sys.stdin.readline().strip().lower()
+  counts = Counter(text.split())
+  best_word, best_count = min(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+  print(best_word, best_count)
+tests:
+  - input: "apple banana apple\n"
+    expected: "apple 2"
+    hidden: false
+  - input: "the quick brown fox jumps over the lazy dog\n"
+    expected: "the 2"
+    hidden: false
+  - input: "Python python PYTHON java\n"
+    expected: "python 3"
+    hidden: true
+  - input: "zebra ant ant\n"
+    expected: "ant 2"
+    hidden: true
+  - input: "b a\n"
+    expected: "a 1"
+    hidden: true

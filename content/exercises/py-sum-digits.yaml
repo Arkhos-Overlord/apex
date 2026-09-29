@@ -1,0 +1,45 @@
+id: py-sum-digits
+title: Sum of Digits
+skills: [loops, arithmetic]
+difficulty: 2
+prompt: |
+  Read one non-negative integer and print the sum of its decimal digits.
+
+  Rules:
+  - Read `n` from standard input.
+  - Print the digit sum and nothing else.
+  - `0` sums to `0`, not to nothing.
+  - You are not allowed to call `str()` on the number -- extract the digits
+    arithmetically.
+
+  The starter parses the number but keeps only the final digit.
+hints:
+  - "n % 10 is the last digit. n // 10 removes it."
+  - "Loop while n > 0, adding n % 10 to a running total, then set n = n // 10."
+starter: |
+  n = int(input())
+  total = 0
+  while n > 0:
+      total += n % 10
+      n = n // 10
+  print(n)
+solution: |
+  n = int(input())
+  total = 0
+  while n > 0:
+      total += n % 10
+      n = n // 10
+  print(total)
+tests:
+  - input: "123\n"
+    expected: "6"
+    hidden: false
+  - input: "0\n"
+    expected: "0"
+    hidden: false
+  - input: "999\n"
+    expected: "27"
+    hidden: true
+  - input: "1000000\n"
+    expected: "1"
+    hidden: true

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
 from apex.core import AdaptiveDifficulty, Chapter, Course, LearnerState, Lesson
+from apex.store import Store, StoreError
 
 # ── Lesson ──────────────────────────────────────────────────────────────
 
@@ -189,8 +191,71 @@ class TestLearnerState:
         assert len(restored.attempt_history) == len(ls.attempt_history)
 
 
-# ── AdaptiveDifficulty ───────────────────────────────────────────────────
+# ── LearnerState in BKT mode ────────────────────────────────────────────
 
+
+class TestLearnerBKTMode:
+    """BKT mode tracks probabilities instead of integer scores.
+
+    BKT_MODE is a module global, so every test here flips it back in a
+    finally block -- leaving it True would silently retarget the whole
+    suite that runs after it.
+    """
+
+    @staticmethod
+    def _run_bkt(ls: LearnerState, correct: bool) -> None:
+        from apex.core import learner as learner_mod
+
+        original = learner_mod.BKT_MODE
+        learner_mod.BKT_MODE = True
+        try:
+            ls.record_attempt("loops", correct)
+        finally:
+            learner_mod.BKT_MODE = original
+
+    def test_unseen_topic_is_not_mastered(self) -> None:
+        """Regression: an unseen topic used to report as mastered.
+
+        Returning MASTERED for un-attempted skills made a brand-new learner
+        look like an expert in every subject, so is_mastered() was True
+        everywhere and nothing was ever selected for practice.
+        """
+        ls = LearnerState()
+        assert ls.get_mastery_probability("loops") == pytest.approx(ls.bkt_params.p_init)
+        assert ls.get_mastery_probability("loops") < 0.95
+        assert ls.is_mastered("loops") is False
+
+    def test_correct_attempt_raises_probability(self) -> None:
+        ls = LearnerState()
+        self._run_bkt(ls, True)
+        assert ls.mastery_probabilities["loops"] > ls.bkt_params.p_init
+
+    def test_incorrect_attempt_lowers_probability(self) -> None:
+        ls = LearnerState()
+        ls.mastery_probabilities["loops"] = 0.9
+        self._run_bkt(ls, False)
+        assert ls.mastery_probabilities["loops"] < 0.9
+
+    def test_bkt_mode_does_not_touch_integer_scores(self) -> None:
+        ls = LearnerState()
+        self._run_bkt(ls, True)
+        assert ls.mastery_scores == {}
+
+    def test_is_mastered_after_repeated_success(self) -> None:
+        from apex.core import learner as learner_mod
+
+        original = learner_mod.BKT_MODE
+        learner_mod.BKT_MODE = True
+        try:
+            ls = LearnerState()
+            for _ in range(15):
+                ls.record_attempt("loops", True)
+            assert ls.is_mastered("loops") is True
+        finally:
+            learner_mod.BKT_MODE = original
+
+
+# ── AdaptiveDifficulty ───────────────────────────────────────────────────
 
 class TestAdaptiveDifficulty:
     def test_default_ratings(self) -> None:
@@ -253,6 +318,70 @@ class TestAdaptiveDifficulty:
         ls = LearnerState()
         engine.update_model(ls, "math", 1.0)
         assert engine.topic_ratings["math"] > 1200.0
+
+    def test_update_model_widens_the_gap(self) -> None:
+        """A strong performance must move the learner/content gap.
+
+        Regression: update_model used to add the same delta to both the
+        learner and the topic rating, which left the gap invariant and made
+        suggest_difficulty and zpd_topics blind to how the learner did.
+        """
+        engine = AdaptiveDifficulty()
+        ls = LearnerState()
+        engine.update_model(ls, "math", 1.0)
+        gap = engine.learner_ratings["math"] - engine.topic_ratings["math"]
+        assert gap > 0.0
+
+    def test_weak_performance_narrows_the_gap(self) -> None:
+        """A poor performance pushes the gap the other way."""
+        engine = AdaptiveDifficulty()
+        ls = LearnerState()
+        engine.update_model(ls, "math", 0.0)
+        gap = engine.learner_ratings["math"] - engine.topic_ratings["math"]
+        assert gap < 0.0
+
+    def test_difficulty_rises_with_repeated_success(self) -> None:
+        """Success after success should escalate difficulty, not stall."""
+        engine = AdaptiveDifficulty()
+        ls = LearnerState()
+        first = engine.suggest_difficulty(ls, "math")
+        for _ in range(5):
+            engine.update_model(ls, "math", 1.0)
+        later = engine.suggest_difficulty(ls, "math")
+        assert later > first
+
+    def test_difficulty_drops_with_repeated_failure(self) -> None:
+        """Failure after failure should back off, not stall."""
+        engine = AdaptiveDifficulty()
+        ls = LearnerState()
+        first = engine.suggest_difficulty(ls, "math")
+        for _ in range(5):
+            engine.update_model(ls, "math", 0.0)
+        later = engine.suggest_difficulty(ls, "math")
+        assert later < first
+
+    def test_damping_is_bounded(self) -> None:
+        """The content rating must never outrun the learner's own rating."""
+        engine = AdaptiveDifficulty(difficulty_damping=1.0)
+        ls = LearnerState()
+        engine.update_model(ls, "math", 1.0)
+        assert engine.topic_ratings["math"] == engine.learner_ratings["math"]
+
+    def test_seeds_learner_rating_from_mastery(self) -> None:
+        """A strong existing mastery starts the learner above the default."""
+        engine = AdaptiveDifficulty()
+        ls = LearnerState()
+        ls.mastery_scores["math"] = 100
+        engine.update_model(ls, "math", 0.5)
+        # 100 mastery -> 1200 + 50*8 = 1600 before the update
+        assert engine.learner_ratings["math"] > 1400.0
+
+    def test_unseen_topic_uses_default_seed(self) -> None:
+        """With no mastery on record the rating starts at the default."""
+        engine = AdaptiveDifficulty()
+        ls = LearnerState()
+        engine.update_model(ls, "unseen", 0.5)
+        assert engine.learner_ratings["unseen"] == pytest.approx(1200.0, abs=1.0)
 
     def test_update_model_invalid_performance_raises(self) -> None:
         engine = AdaptiveDifficulty()
@@ -341,3 +470,77 @@ class TestIntegration:
 
 
 # ── LearnerState persistence ──────────────────────────────────────────────
+
+
+class TestLearnerPersistence:
+    """save/load must round-trip through the store's canonical 0-1 scale."""
+
+    @staticmethod
+    def _store(tmp_path: Path) -> Store:
+        return Store(tmp_path / "test.db")
+
+    def test_elo_scores_are_normalised_to_0_1(self, tmp_path: Path) -> None:
+        """Regression: save() wrote Elo's 0-100 straight into the store.
+
+        Everything downstream -- prerequisite gating, select_next, the
+        MASTERED threshold -- reads that column as a probability, so a
+        perfect 100 was read back as 100x over the mastery threshold.
+        """
+        store = self._store(tmp_path)
+        ls = LearnerState(persistence=store)
+        ls.record_attempt("io", True)
+        ls.save("alice")
+
+        stored = store.get_mastery("alice")
+        assert stored["io"] == pytest.approx(0.1)
+        assert all(0.0 <= v <= 1.0 for v in stored.values())
+
+    def test_elo_round_trip(self, tmp_path: Path) -> None:
+        store = self._store(tmp_path)
+        ls = LearnerState(persistence=store)
+        for _ in range(4):
+            ls.record_attempt("loops", True)
+        ls.save("alice")
+
+        restored = LearnerState(persistence=store)
+        restored.load("alice")
+        assert restored.get_mastery("loops") == 40
+
+    def test_bkt_round_trip(self, tmp_path: Path) -> None:
+        from apex.core import learner as learner_mod
+
+        store = self._store(tmp_path)
+        original = learner_mod.BKT_MODE
+        learner_mod.BKT_MODE = True
+        try:
+            ls = LearnerState(persistence=store)
+            for _ in range(3):
+                ls.record_attempt("loops", True)
+            probability = ls.mastery_probabilities["loops"]
+            ls.save("alice")
+
+            restored = LearnerState(persistence=store)
+            restored.load("alice")
+            assert restored.mastery_probabilities["loops"] == pytest.approx(probability)
+        finally:
+            learner_mod.BKT_MODE = original
+
+    def test_save_without_store_raises(self) -> None:
+        ls = LearnerState()
+        with pytest.raises(StoreError):
+            ls.save("alice")
+
+    def test_load_without_store_raises(self) -> None:
+        ls = LearnerState()
+        with pytest.raises(StoreError):
+            ls.load("alice")
+
+    def test_load_records_exposure_evidence(self, tmp_path: Path) -> None:
+        store = self._store(tmp_path)
+        source = LearnerState(persistence=store)
+        source.record_attempt("io", True)
+        source.save("alice")
+
+        restored = LearnerState(persistence=store)
+        restored.load("alice")
+        assert any(e["type"] == "exposure" and e["topic"] == "io" for e in restored.evidence)

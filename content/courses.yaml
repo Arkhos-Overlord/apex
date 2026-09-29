@@ -1,0 +1,35 @@
+# Courses group skills into a path a learner can actually follow.
+#
+# `skills` is ordered: the practice session unlocks a skill's exercises only
+# once the preceding skills clear their mastery threshold, so a learner who
+# starts on "Reliable Python" without the foundations is told what's missing
+# rather than handed an exercise they cannot read.
+
+courses:
+  - id: introduction-to-python
+    title: Introduction to Python
+    description: >-
+      Read input, do arithmetic, make decisions, and repeat work with loops.
+      The foundation everything else assumes.
+    skills: [io, arithmetic, conditionals, loops]
+
+  - id: python-text
+    title: Working with Text
+    description: >-
+      Strings as sequences, slicing, and the dictionary counting technique
+      that turns unstructured text into something you can query.
+    skills: [strings, data-structures]
+
+  - id: python-functions
+    title: Functions and Recursion
+    description: >-
+      Package logic into named, testable units -- then solve a problem by
+      calling one function from itself.
+    skills: [functions, recursion]
+
+  - id: reliable-python
+    title: Reliable Python
+    description: >-
+      Anticipate the inputs that break your program instead of discovering
+      them in production, and prove your code works.
+    skills: [error-handling, testing]

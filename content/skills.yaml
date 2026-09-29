@@ -1,25 +1,238 @@
-# APEX Skills
-# Each skill has an id, name, and optional prerequisites.
+# The knowledge web.
+#
+# Every entry is a node.  kind: skill nodes carry exercises and get mastery
+# tracked against them; kind: concept nodes are knowledge with no exercises
+# yet -- the frontier the graph grows into, which is what lets the
+# curriculum be open-ended instead of a list somebody wrote down and
+# finished.
+#
+# Relations, and why each one exists:
+#   prereqs     hard ordering.  Blocks until satisfied.
+#   related     adjacent material.  Navigation, not ordering.
+#   contrasts   things learners mix up.  The edge is the warning.
+#   part_of     containment.  Sorts the graph into subjects.
+#   applies_to  a context the concept gets used in.
+#
+# Every target must name an entry below.  A dangling target is a load-time
+# error, and 'apex doctor' reports which file to fix.
+
+# ── Foundations ───────────────────────────────────────────────────────────
+
+- id: programming
+  name: Programming
+  kind: concept
+  summary: Writing instructions a machine can carry out without interpreting them.
+  prereqs: []
+  related: [computer-science]
+  part_of: []
+
+- id: computer-science
+  name: Computer Science
+  kind: concept
+  summary: The study of what can be computed, and how efficiently.
+  prereqs: [programming]
+  related: []
+  part_of: []
 
 - id: io
-  name: Input & Output
+  name: Input and Output
+  summary: Reading values from outside a program and writing results back.
+  prereqs: [programming]
+  related: [variables]
+  contrasts: [state]
+  part_of: [programming]
+  applies_to: []
+
+- id: variables
+  name: Variables
+  kind: concept
+  summary: Named containers that hold a value so the program can refer to it by name.
+  prereqs: [io]
+  related: [data-structures, conditionals]
+  contrasts: [constants]
+  part_of: [programming]
+  applies_to: [loops]
+
+- id: constants
+  name: Constants
+  kind: concept
+  summary: A name bound once, to a value never meant to change.
+  prereqs: [variables]
+  related: []
+  contrasts: [variables]
+  part_of: [programming]
+  applies_to: []
+
+- id: state
+  name: State
+  kind: concept
+  summary: Everything a program must remember between one instruction and the next.
+  prereqs: [variables]
+  related: []
+  contrasts: [io]
+  part_of: [programming]
+  applies_to: [data-structures]
 
 - id: arithmetic
   name: Arithmetic
+  summary: Operators that combine numbers; the exactness of division is the trap.
   prereqs: [io]
+  related: [conditionals]
+  contrasts: []
+  part_of: [programming]
+  applies_to: [arithmetic-operators]
+
+- id: arithmetic-operators
+  name: Arithmetic Operators
+  kind: concept
+  summary: + - * / // % ** and how integer division quietly truncates.
+  prereqs: [arithmetic]
+  related: []
+  contrasts: [conditionals]
+  part_of: [arithmetic]
+  applies_to: [arithmetic]
 
 - id: conditionals
   name: Conditionals
-  prereqs: [arithmetic]
+  summary: Choosing between code paths by testing a condition.
+  prereqs: [arithmetic, variables]
+  related: [loops]
+  contrasts: [loops, functions]
+  part_of: [programming]
+  applies_to: [error-handling]
+
+- id: strings
+  name: Strings
+  summary: Immutable sequences of characters, indexed but never edited in place.
+  prereqs: [io, variables]
+  related: [data-structures, sorting]
+  contrasts: [data-structures]
+  part_of: [programming]
+  applies_to: [word-frequency]
 
 - id: loops
   name: Loops
+  summary: Repeating a block while a condition holds, so repetition costs one write.
   prereqs: [conditionals]
+  related: [recursion, functions]
+  contrasts: [recursion, conditionals]
+  part_of: [programming]
+  applies_to: [algorithms]
 
 - id: functions
   name: Functions
-  prereqs: [loops]
+  summary: Named, reusable blocks that take inputs, do one job, and return a result.
+  prereqs: [loops, variables]
+  related: [recursion, testing]
+  contrasts: [recursion, conditionals]
+  part_of: [programming]
+  applies_to: [error-handling, algorithms]
 
-- id: strings
-  name: String Manipulation
-  prereqs: [io]
+- id: data-structures
+  name: Data Structures
+  summary: Ways of organising values so the operations you need are cheap.
+  prereqs: [loops, strings]
+  related: [algorithms]
+  contrasts: [strings, algorithms]
+  part_of: [programming]
+  applies_to: [sorting]
+
+# ── Practice ──────────────────────────────────────────────────────────────
+
+- id: error-handling
+  name: Exceptions
+  summary: Deciding a sensible fallback when an operation cannot complete.
+  prereqs: [functions]
+  related: [testing, debugging]
+  contrasts: [conditionals]
+  part_of: [programming]
+  applies_to: [parsing, word-frequency]
+
+- id: parsing
+  name: Parsing
+  kind: concept
+  summary: Turning unstructured text into structured values, and surviving the lines that are not.
+  prereqs: [error-handling, strings]
+  related: [data-structures]
+  contrasts: [error-handling]
+  part_of: [error-handling]
+  applies_to: [word-frequency]
+
+- id: debugging
+  name: Debugging
+  kind: concept
+  summary: Narrowing a wrong answer down to the line that is wrong.
+  prereqs: [error-handling, loops]
+  related: [testing]
+  contrasts: [testing]
+  part_of: [programming]
+  applies_to: []
+
+- id: testing
+  name: Testing
+  kind: concept
+  summary: Stating what code should do for a known input, so breakage shows up immediately.
+  prereqs: [error-handling, data-structures]
+  related: [debugging, functions]
+  contrasts: [debugging]
+  part_of: [programming]
+  applies_to: [algorithms]
+
+- id: recursion
+  name: Recursion
+  summary: Solving a problem by solving a smaller version of it until a base case stops the shrinking.
+  prereqs: [functions]
+  related: [algorithms, loops]
+  contrasts: [loops]
+  part_of: [programming]
+  applies_to: [algorithms]
+
+- id: algorithms
+  name: Algorithms
+  kind: concept
+  summary: A finite procedure for solving a class of problems, judged by correctness and cost.
+  prereqs: [data-structures, functions, recursion]
+  related: [complexity]
+  contrasts: [data-structures]
+  part_of: [computer-science]
+  applies_to: [sorting]
+
+- id: sorting
+  name: Sorting
+  kind: concept
+  summary: Rearranging a collection into order, trading simplicity against how cost grows.
+  prereqs: [algorithms, data-structures]
+  related: [complexity]
+  contrasts: [searching]
+  part_of: [algorithms]
+  applies_to: []
+
+- id: searching
+  name: Searching
+  kind: concept
+  summary: Locating a value in a collection, with and without a known order.
+  prereqs: [sorting, data-structures]
+  related: [complexity]
+  contrasts: [sorting]
+  part_of: [algorithms]
+  applies_to: []
+
+- id: complexity
+  name: Algorithmic Complexity
+  kind: concept
+  summary: How an algorithm's cost grows with the size of its input, ignoring constants.
+  prereqs: [algorithms]
+  related: []
+  contrasts: []
+  part_of: [computer-science]
+  applies_to: [sorting, searching]
+
+- id: word-frequency
+  name: Frequency Counting
+  kind: concept
+  summary: Turning a pile of text into counts you can rank, using a hash map.
+  prereqs: [parsing, data-structures, strings]
+  related: [strings]
+  contrasts: []
+  part_of: [algorithms]
+  applies_to: []
