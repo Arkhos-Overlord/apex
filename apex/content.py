@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from apex.core.bkt import MASTERED as MASTERED_THRESHOLD
 from apex.graph import Concept, KnowledgeGraph, Relation
@@ -21,12 +21,27 @@ class TestItem(BaseModel):
 
 
 class Exercise(BaseModel):
-    """A coding exercise with prompt, starter code, and tests.
+    """A practice item of any supported kind.
+
+    Four kinds, because "learning anything" cannot mean "writing Python":
+
+    * ``code``    — source graded by running it against test cases in the
+      sandbox. ``language`` selects the interpreter (``python``,
+      ``javascript``).
+    * ``mcq``     — choose from ``options``; ``answer`` is the exact
+      correct option text.
+    * ``recall``  — a short free-text answer graded case-insensitively;
+      ``accept`` lists alternative correct spellings.
+    * ``numeric`` — a number graded within ``tolerance`` (absolute).
+
+    ``mcq``/``recall``/``numeric`` need no sandbox at all — that is what
+    makes domains like mathematics or Spanish vocabulary expressible in
+    the same adaptive engine as code.
 
     Attributes:
-        solution: Reference implementation.  Never included in
-            :meth:`public` -- it is only revealed on request after an
-            unsuccessful attempt.
+        solution: Reference answer.  Never included in :meth:`public` --
+            it is only revealed on request after an unsuccessful attempt.
+            For static kinds this is simply the correct answer rendered.
         hints: Progressive hints, ordered easiest-first.
     """
 
@@ -34,11 +49,18 @@ class Exercise(BaseModel):
     title: str
     skills: list[str] = Field(min_length=1)
     difficulty: int = Field(ge=1, le=5)
+    kind: Literal["code", "mcq", "recall", "numeric"] = "code"
+    language: str = "python"
     prompt: str
     starter: str = ""
     solution: str = ""
     hints: list[str] = Field(default_factory=list)
-    tests: list[TestItem] = Field(min_length=1)
+    tests: list[TestItem] = Field(default_factory=list)
+    options: list[str] = Field(default_factory=list)
+    answer: str = ""
+    accept: list[str] = Field(default_factory=list)
+    tolerance: float = Field(default=0.0, ge=0.0)
+    explanation: str = ""
 
     @field_validator("id")
     @classmethod
@@ -47,16 +69,33 @@ class Exercise(BaseModel):
             raise ValueError("exercise id must be a slug")
         return v
 
+    @model_validator(mode="after")
+    def _validate_kind(self) -> "Exercise":
+        """Enforce the per-kind invariants that graders rely on."""
+        if self.kind == "code":
+            if not self.tests:
+                raise ValueError(f"{self.id}: code exercises need at least one test case")
+        elif self.kind == "mcq":
+            if len(self.options) < 2:
+                raise ValueError(f"{self.id}: mcq exercises need at least two options")
+            if self.answer not in self.options:
+                raise ValueError(f"{self.id}: mcq answer must be one of the options")
+        elif self.kind in ("recall", "numeric"):
+            if not self.answer.strip():
+                raise ValueError(f"{self.id}: {self.kind} exercises need an answer")
+        return self
+
     def public(self) -> dict[str, Any]:
         """Everything a learner may see.
 
-        Strips two things: the hidden test expectations, and the reference
-        solution.  Hints are kept -- they are scaffolding, not the answer --
-        but the first hint only helps if the tests are visible.
+        Strips the reference solution and the hidden test expectations.
+        Hints are kept -- they are scaffolding, not the answer -- but the
+        first hint only helps if the tests are visible.
         """
         d = self.model_dump()
         d["tests"] = [t.model_dump() for t in self.tests if not t.hidden]
         d["solution"] = ""
+        d["answer"] = ""
         return d
 
     def grader_cases(self) -> list[dict[str, str]]:
@@ -164,8 +203,15 @@ class ContentLibrary:
         self.reload()
 
     def reload(self) -> None:
-        """Load all YAML files from the content directory."""
-        skills_raw = yaml.safe_load((self.root / "skills.yaml").read_text()) or []
+        """Load all YAML files from the content directory.
+
+        Skills may be split across ``skills.yaml`` plus any
+        ``skills-*.yaml`` files, so a new domain does not have to grow one
+        ever-longing file; exercises always load from ``exercises/*.yaml``.
+        """
+        skills_raw: list[dict[str, Any]] = []
+        for path in sorted(self.root.glob("skills*.yaml")):
+            skills_raw.extend(yaml.safe_load(path.read_text()) or [])
         self.skills = {s["id"]: Skill(**s) for s in skills_raw}
         self.exercises = {}
         for path in sorted((self.root / "exercises").glob("*.yaml")):

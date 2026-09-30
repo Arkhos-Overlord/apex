@@ -1,0 +1,17 @@
+id: math-exponents-1
+title: Powers vs Products
+kind: mcq
+skills: [exponents]
+difficulty: 2
+prompt: |
+  Which grows **faster** as n gets large?
+options:
+  - "n squared"
+  - "2 times n"
+  - "the square root of n"
+  - "n plus 100"
+answer: "n squared"
+hints:
+  - Compare how each expression changes when n doubles.
+  - Multiplication adds a constant; exponentiation multiplies by n.
+explanation: n^2 multiplies by 4 whenever n doubles; 2n only ever doubles.

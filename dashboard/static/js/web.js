@@ -597,12 +597,68 @@ function renderExercise() {
     }
     header.appendChild(el("div", "ex-title", ex.title));
     header.appendChild(
-        el("div", "ex-meta", `${ex.id} · difficulty ${ex.difficulty}/5 · skills: ${ex.skills.join(", ")}`)
+        el("div", "ex-meta", `${ex.id} · ${kindLabel(ex)} · difficulty ${ex.difficulty}/5 · skills: ${ex.skills.join(", ")}`)
     );
     prompt.textContent = ex.prompt;
-    starter.textContent = ex.starter || "(no starter code)";
-    editor.value = ex.starter || "";
+
+    // Answer surface depends on the kind: code gets an editor, mcq gets
+    // option buttons, recall/numeric get a one-line input.
+    if (ex.kind === "code") {
+        starter.textContent = ex.starter || "(no starter code)";
+        editor.value = ex.starter || "";
+        editor.style.display = "";
+        renderStaticAnswer(null);
+    } else {
+        starter.textContent = "";
+        editor.value = "";
+        editor.style.display = "none";
+        renderStaticAnswer(ex);
+    }
     renderHintButton();
+}
+
+function kindLabel(ex) {
+    if (ex.kind === "code") return `code · ${ex.language || "python"}`;
+    if (ex.kind === "mcq") return "multiple choice";
+    if (ex.kind === "recall") return "short answer";
+    return "numeric";
+}
+
+/* Static-answer surface: options for mcq, an input otherwise. The chosen
+ * value lands in STATE.answer, which submitSolution sends as `source`. */
+function renderStaticAnswer(ex) {
+    STATE.answer = "";
+    let holder = document.getElementById("static-answer");
+    if (!holder) {
+        holder = el("div");
+        holder.id = "static-answer";
+        document.getElementById("code-editor").before(holder);
+    }
+    holder.textContent = "";
+    if (!ex) return;
+
+    if (ex.kind === "mcq") {
+        (ex.options || []).forEach((opt, i) => {
+            const btn = el("button", "btn btn-secondary option-btn", `${i + 1}. ${opt}`);
+            btn.style.cssText = "display:block;width:100%;text-align:left;margin-bottom:8px;";
+            btn.onclick = () => {
+                STATE.answer = opt;
+                holder.querySelectorAll(".option-btn").forEach((b) => (b.style.borderColor = ""));
+                btn.style.borderColor = "var(--accent)";
+            };
+            holder.appendChild(btn);
+        });
+    } else {
+        const input = el("input");
+        input.type = "text";
+        input.id = "static-answer-input";
+        input.placeholder = ex.kind === "numeric" ? "Enter a number" : "Type your answer";
+        input.style.cssText = "width:100%;background:#0d1120;border:1px solid var(--border-bright);border-radius:8px;color:var(--text-primary);font-size:14px;padding:10px 14px;outline:none;margin-bottom:4px;";
+        input.oninput = () => { STATE.answer = input.value; };
+        input.onkeydown = (e) => { if (e.key === "Enter") submitSolution(); };
+        holder.appendChild(input);
+        input.focus();
+    }
 }
 
 function renderHintButton() {
@@ -629,10 +685,19 @@ document.getElementById("btn-skip")?.addEventListener("click", () => {
 async function submitSolution() {
     const ex = STATE.currentExercise;
     if (!ex) return;
-    const source = document.getElementById("code-editor").value;
-    if (!source.trim()) {
-        setStatus("Write some code first.", "err");
-        return;
+    let source;
+    if (ex.kind === "code") {
+        source = document.getElementById("code-editor").value;
+        if (!source.trim()) {
+            setStatus("Write some code first.", "err");
+            return;
+        }
+    } else {
+        source = (STATE.answer || "").trim();
+        if (!source) {
+            setStatus("Choose or type an answer first.", "err");
+            return;
+        }
     }
     const btn = document.getElementById("btn-submit");
     btn.disabled = true;

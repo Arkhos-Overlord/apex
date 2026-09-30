@@ -148,10 +148,13 @@ class CourseListResponse(BaseModel):
 class ExercisePublic(BaseModel):
     id: str
     title: str
+    kind: str = "code"
+    language: str = "python"
     skills: list[str]
     difficulty: int
     prompt: str
     starter: str
+    options: list[str] = []
     hints: list[str]
     tests: list[dict[str, Any]]
 

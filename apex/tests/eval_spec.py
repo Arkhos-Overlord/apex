@@ -334,8 +334,11 @@ def s8_dashboard_serves_the_web(ctx: Ctx) -> tuple[bool, str]:
     """
     exercise = ctx.session.next_exercise()
     if exercise is not None:
+        # Static kinds (mcq/recall/numeric) carry their reference in
+        # `answer`; code kinds in `solution`.
+        reference = exercise.answer if exercise.kind != "code" else exercise.solution
         for _ in range(3):
-            ctx.session.submit(exercise.solution, exercise)
+            ctx.session.submit(reference, exercise)
 
     expected = ctx.session.mastery()[exercise.skills[0]]
 

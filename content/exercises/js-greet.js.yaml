@@ -1,0 +1,31 @@
+# A JavaScript code exercise: same grading pipeline, different interpreter.
+# The sandbox runs it with node and a V8 heap cap, exactly like the Python
+# ones -- only `language` differs.
+
+id: js-greet
+title: JavaScript Greeting
+kind: code
+language: javascript
+# skills: [io] only. Tagging a pure *concept* node (like `programming`,
+# which has no exercises of its own) makes it a gate that can never be
+# mastered, which locked io -- and every code exercise behind it -- away
+# from the adaptive selector forever.
+skills: [io]
+difficulty: 1
+prompt: |
+  Read a name from standard input and print `Hello, <name>!` — in
+  JavaScript this time. The engine runs Node; `readline` is unnecessary,
+  just read all of stdin synchronously.
+starter: |
+  const name = require('fs').readFileSync(0, 'utf8').trim();
+  // print the greeting
+solution: |
+  const name = require('fs').readFileSync(0, 'utf8').trim();
+  console.log(`Hello, ${name}!`);
+tests:
+  - input: "Ada\n"
+    expected: "Hello, Ada!\n"
+    hidden: false
+  - input: "Grace\n"
+    expected: "Hello, Grace!\n"
+    hidden: true

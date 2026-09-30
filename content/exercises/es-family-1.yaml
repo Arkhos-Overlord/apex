@@ -1,0 +1,17 @@
+id: es-family-1
+title: "Family: Mother"
+kind: mcq
+skills: [spanish-family]
+difficulty: 1
+prompt: |
+  Which word means **mother**?
+options:
+  - padre
+  - madre
+  - hermano
+  - abuela
+answer: madre
+hints:
+  - Madre appears in the English word madrigal, songs sung to mothers.
+  - padre is father; hermano is brother.
+explanation: madre = mother; padre = father; the -dre/-dre pairing helps.

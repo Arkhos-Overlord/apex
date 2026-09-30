@@ -1,0 +1,13 @@
+id: es-greeting-2
+title: Saying Goodbye
+kind: recall
+skills: [spanish-greetings]
+difficulty: 1
+prompt: |
+  How do you say "goodbye" in Spanish? (One word.)
+answer: adios
+accept: [adiós]
+hints:
+  - It literally means "to God" -- a shortened blessing.
+  - Starts with "a", ends with "s".
+explanation: adios (a Dios, to God). The accent is on the o.

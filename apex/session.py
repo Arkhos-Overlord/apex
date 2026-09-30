@@ -25,6 +25,7 @@ from apex.core.adaptive import AdaptiveDifficulty
 from apex.core.bkt import DEFAULT, MASTERED, apply_attempt
 from apex.core.learner import LearnerState
 from apex.engine.code_exec import grade_code
+from apex.engine.grading import grade_static
 from apex.graph import Relation
 from apex.store import Store
 
@@ -423,7 +424,14 @@ class LearningSession:
         ]
 
         if not eligible:
-            return min(pool, key=lambda ex: (weakest(ex), ex.difficulty, ex.id))
+            # Nothing is unlocked (e.g. a brand-new learner on a fully gated
+            # course): fall back to the weakest exercise in the pool so the
+            # learner is still shown *something* actionable. Honour the
+            # caller's exclude set so a practice loop never sees repeats.
+            fresh = [ex for ex in pool if ex.id not in skip]
+            if not fresh:
+                return None
+            return min(fresh, key=lambda ex: (weakest(ex), ex.difficulty, ex.id))
 
         unseen = [ex for ex in eligible if ex.id not in solved and ex.id not in skip]
         if unseen:
@@ -431,7 +439,9 @@ class LearningSession:
         unserved = [ex for ex in eligible if ex.id not in skip]
         if unserved:
             return min(unserved, key=lambda ex: (weakest(ex), ex.difficulty, ex.id))
-        return min(eligible, key=lambda ex: (weakest(ex), ex.difficulty, ex.id))
+        # Everything eligible has been served this run: stop rather than
+        # repeat, which is what the exclude contract promises.
+        return None
 
     def exercises_for(self, course_id: str) -> list[Exercise]:
         """Every exercise in a course, in course order."""
@@ -442,15 +452,15 @@ class LearningSession:
     def submit(self, source: str, exercise: Exercise) -> AttemptReport:
         """Grade *source* against *exercise* and record the attempt.
 
-        Graded against every test case, hidden ones included: a learner is
-        not told which cases exist, but passing requires getting all of
-        them right.
-
-        Mastery is updated for every skill the exercise assesses, so an
-        exercise tagged with two skills moves both.
+        Dispatch is on the exercise kind: ``code`` runs against every test
+        case (hidden ones included) in the sandbox for the exercise's
+        language; ``mcq``/``recall``/``numeric`` are graded statically
+        against the answer key with no sandbox at all.  Mastery is updated
+        for every skill the exercise assesses either way, so a Spanish
+        vocabulary quiz moves the same BKT machinery as a Python exercise.
 
         Args:
-            source: The learner's code.
+            source: The learner's code, or their raw answer for static kinds.
             exercise: The exercise being attempted.
 
         Returns:
@@ -458,7 +468,10 @@ class LearningSession:
         """
         before = self.mastery()
         start = time.perf_counter()
-        grade = grade_code(source, exercise.grader_cases())
+        if exercise.kind == "code":
+            grade = grade_code(source, exercise.grader_cases(), language=exercise.language)
+        else:
+            grade = grade_static(exercise, source)
         duration = time.perf_counter() - start
 
         score = float(grade["score"])

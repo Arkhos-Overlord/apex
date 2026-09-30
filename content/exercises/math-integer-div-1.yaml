@@ -1,0 +1,18 @@
+id: math-integer-div-1
+title: Integer Division Traps
+kind: mcq
+skills: [integer-division]
+difficulty: 2
+prompt: |
+  A shop divides 17 apples evenly into bags of 5 and throws away any
+  leftover. How many apples end up in bags?
+options:
+  - "4"
+  - "3.4"
+  - "3"
+  - "2"
+answer: "3"
+hints:
+  - 3.4 is what a calculator says; bags must be whole.
+  - 5 * 3 = 15 fits; 5 * 4 = 20 does not.
+explanation: 17 // 5 = 3 remainder 2 -- the remainder is discarded, not shared.

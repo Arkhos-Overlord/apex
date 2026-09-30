@@ -349,14 +349,20 @@ class TestPracticeCommand:
     """Behaviour of the practice command."""
 
     def test_practice_runs(self) -> None:
-        """practice command starts a session."""
+        """practice --solution attempts and grades an exercise.
+
+        The selector now serves non-code kinds (mcq/recall/numeric) too,
+        which prompt interactively for an answer line -- --solution keeps
+        the test non-interactive by submitting the reference answer.
+        """
         from apex.cli.main import cli
         from click.testing import CliRunner
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["practice"])
+        result = runner.invoke(cli, ["practice", "--solution"])
         assert result.exit_code == 0
         assert "Adaptive Practice Session" in result.output
+        assert "PASSED" in result.output or "FAILED" in result.output
 
 
 class TestDashboardCommand:
@@ -465,10 +471,11 @@ class TestCLIHelp:
 
     def test_version(self) -> None:
         """apex --version returns the package version."""
+        from apex import __version__
         from apex.cli.main import cli
         from click.testing import CliRunner
 
         runner = CliRunner()
         result = runner.invoke(cli, ["--version"])
         assert result.exit_code == 0
-        assert "0.2.0" in result.output
+        assert __version__ in result.output

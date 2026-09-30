@@ -2,10 +2,10 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue)](https://python.org)
-[![Tests](https://img.shields.io/badge/Tests-341%20passed%20%2B%207%20skipped-brightgreen)](https://github.com/Arkhos-Overlord/apex/actions)
+[![Tests](https://img.shields.io/badge/Tests-384%20passed%20%2B%201%20skipped-brightgreen)](https://github.com/Arkhos-Overlord/apex/actions)
 [![Lint](https://img.shields.io/badge/Lint-Clean-success)](https://github.com/Arkhos-Overlord/apex/actions)
 
-> A standalone teaching platform that turns any AI agent into a personalized instructor. Build courses, execute code, track mastery, and learn with adaptive difficulty — all from the terminal or a browser.
+> A standalone teaching platform that turns any AI agent into a personalized instructor — for any subject, not just programming. Python and JavaScript grade in the sandbox; math and Spanish grade statically against answer keys, all through the same adaptive engine. Build courses, track mastery, learn with adaptive difficulty — from the terminal or a browser.
 
 ## Why APEX?
 
@@ -26,6 +26,7 @@ APEX is **standalone**. It works with any AI agent, any model, any provider. You
 
 ### 🎓 Core Engine
 - **Course model** — structured curriculum with chapters, lessons, exercises
+- **Four exercise kinds** — `code` (sandbox-graded, Python or JavaScript), `mcq`, `recall` (accent/case-insensitive short answer), and `numeric` (tolerance-based, accepts fractions and thousand separators) — so non-programming subjects run on the same adaptive pipeline
 - **Learner tracking** — mastery scores (0-100), attempt history, confidence levels, evidence-based progress
 - **Adaptive difficulty** — Elo-style rating adjusts problem difficulty based on performance in real-time
 
@@ -124,7 +125,7 @@ apex/
 │   ├── server.py            # FastAPI backend
 │   ├── templates/           # HTML templates
 │   └── static/              # CSS, JS (Chart.js visualizations)
-├── tests/                   # 208 tests, all passing
+├── tests/                   # Full suite incl. sandbox, grading, and multi-domain content
 └── pyproject.toml           # Package configuration
 ```
 
@@ -143,7 +144,7 @@ ruff format --check apex/
 mypy apex/
 ```
 
-**208 tests passing, 0 lint errors.**
+**Run `python -m pytest apex/tests/ -q` — the badge above tracks the current count.**
 
 ## API Reference
 
@@ -243,6 +244,48 @@ Environment variables:
 | APEX_TIMEOUT_S | 30 | Code execution timeout |
 | APEX_MEMORY_MB | 256 | Memory limit for code execution |
 | HERMES_TTS_AVAILABLE | 0 | Enable text-to-speech |
+
+## Adding Content
+
+Drop YAML files into `content/exercises/`. Skills live in `skills.yaml` plus any `skills-*.yaml` file, so a new domain (see `skills-math.yaml`, `skills-spanish.yaml`) never has to grow one ever-longer file.
+
+**Code exercise** (sandbox-graded):
+
+```yaml
+id: py-lists-basics
+title: List Basics
+language: python      # or javascript
+skills: [io]
+difficulty: 1
+prompt: |
+  Read three numbers and print them sorted.
+starter: |
+  nums = []
+  for _ in range(3):
+      nums.append(int(input()))
+tests:
+  - input: "3 1 2\n"
+    expected: "1 2 3\n"
+    hidden: true
+```
+
+**Static exercises** (no sandbox — any subject):
+
+```yaml
+id: es-greeting-1
+title: Saying Hello
+kind: recall          # or mcq (options + answer) / numeric (answer + tolerance)
+skills: [spanish-greetings]
+difficulty: 1
+prompt: |
+  How do you say "hello" in Spanish?
+answer: hola
+hints:
+  - It starts with a silent h.
+explanation: hola -- the h is silent.
+```
+
+Tag exercises with existing *skills* (nodes that own exercises), not pure concepts — a concept gate that can never be mastered locks its whole subtree.
 
 ## License
 

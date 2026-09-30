@@ -149,7 +149,8 @@ def grade_code(
     test_cases:
         List of ``{input, expected_output, description}`` dicts.
     language:
-        ``"python"`` or ``"javascript"``.
+        ``"python"`` or ``"javascript"`` (any language :func:`run_code`
+        supports).
 
     Returns
     -------

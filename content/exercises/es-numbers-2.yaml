@@ -1,0 +1,13 @@
+id: es-numbers-2
+title: Ten in Spanish
+kind: recall
+skills: [spanish-numbers]
+difficulty: 1
+prompt: |
+  Write the Spanish word for the number 10.
+answer: diez
+accept: []
+hints:
+  - The d-iez spelling pattern rhymes with yes.
+  - December was once the tenth month -- diez hides in diciembre.
+explanation: diez = 10. (Diciembre was the tenth month of the old Roman calendar.)

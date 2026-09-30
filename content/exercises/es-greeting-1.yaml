@@ -1,0 +1,16 @@
+# Spanish — recall exercises. The learner types the translation; grading is
+# case- and accent-insensitive, with `accept` covering valid alternatives.
+
+id: es-greeting-1
+title: Saying Hello
+kind: recall
+skills: [spanish-greetings]
+difficulty: 1
+prompt: |
+  How do you say "hello" in Spanish? (One word.)
+answer: hola
+accept: []
+hints:
+  - It starts with "h", which is silent in Spanish.
+  - You have almost certainly heard this word.
+explanation: hola -- the h is silent, so it sounds like OH-lah.

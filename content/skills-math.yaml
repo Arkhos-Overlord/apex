@@ -1,0 +1,60 @@
+# ── Mathematics: arithmetic grounded in the existing web ─────────────────
+#
+# Mathematics nodes hook into the web through `applies_to` from the
+# programming side (arithmetic applies-to arithmetic-operators already
+# exists). integer-division is the same trap Python's `//` hides, which is
+# why it is a `contrasts` neighbour of arithmetic-operators.
+
+- id: mathematics
+  name: Mathematics
+  kind: concept
+  summary: The study of quantity, structure, and change -- the language the sciences compute in.
+  prereqs: []
+  related: [programming]
+  part_of: []
+  applies_to: []
+
+- id: order-of-operations
+  name: Order of Operations
+  summary: Multiplication binds tighter than addition; brackets override both.
+  prereqs: [mathematics]
+  related: [arithmetic]
+  contrasts: [integer-division]
+  part_of: [mathematics]
+  applies_to: [arithmetic]
+
+- id: fractions
+  name: Fractions and Ratios
+  summary: Parts of a whole, compared by cross-multiplication rather than decimals.
+  prereqs: [order-of-operations]
+  related: [integer-division]
+  contrasts: []
+  part_of: [mathematics]
+  applies_to: []
+
+- id: percentages
+  name: Percentages
+  summary: Fractions with denominator 100; percent change is relative, not absolute.
+  prereqs: [fractions]
+  related: []
+  contrasts: []
+  part_of: [mathematics]
+  applies_to: []
+
+- id: integer-division
+  name: Integer Division
+  summary: Division that discards the remainder -- the quiet truncation behind floor division.
+  prereqs: [order-of-operations]
+  related: [fractions]
+  contrasts: [arithmetic-operators]
+  part_of: [mathematics]
+  applies_to: [arithmetic-operators]
+
+- id: exponents
+  name: Exponents and Roots
+  summary: Repeated multiplication and its inverse; powers grow faster than anything linear.
+  prereqs: [order-of-operations]
+  related: []
+  contrasts: []
+  part_of: [mathematics]
+  applies_to: []

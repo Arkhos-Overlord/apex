@@ -390,23 +390,37 @@ def practice(
                 border_style="cyan",
             )
         )
-        if exercise.starter:
-            console.print("[dim]Starter:[/dim]")
-            console.print(Syntax(exercise.starter.rstrip(), "python", theme="monokai", padding=(0, 2)))
+        kind = exercise.kind
+        if kind == "mcq":
+            console.print("[dim]Options:[/dim]")
+            for i, option in enumerate(exercise.options, 1):
+                console.print(f"  [cyan]{i}.[/cyan] {option}")
+            console.print("[dim]Answer with the option text or its number.[/dim]")
+        elif kind in ("recall", "numeric"):
+            console.print("[dim]Type your answer on one line.[/dim]")
 
-        visible = [t for t in exercise.tests if not t.hidden]
-        if visible:
-            console.print("[dim]Visible test cases:[/dim]")
-            for test in visible:
-                console.print(f"  stdin [cyan]{test.input.strip()!r}[/cyan] -> stdout {test.expected.strip()!r}")
-        hidden_count = sum(1 for t in exercise.tests if t.hidden)
-        if hidden_count:
-            console.print(f"  [dim]+ {hidden_count} hidden test case(s); you need all of them[/dim]")
+        if kind == "code" and exercise.starter:
+            console.print("[dim]Starter:[/dim]")
+            console.print(Syntax(exercise.starter.rstrip(), exercise.language, theme="monokai", padding=(0, 2)))
+
+        if kind == "code":
+            visible = [t for t in exercise.tests if not t.hidden]
+            if visible:
+                console.print("[dim]Visible test cases:[/dim]")
+                for test in visible:
+                    console.print(f"  stdin [cyan]{test.input.strip()!r}[/cyan] -> stdout {test.expected.strip()!r}")
+            hidden_count = sum(1 for t in exercise.tests if t.hidden)
+            if hidden_count:
+                console.print(f"  [dim]+ {hidden_count} hidden test case(s); you need all of them[/dim]")
 
         if solution:
-            source = exercise.solution
+            source = exercise.answer if exercise.kind != "code" else exercise.solution
         elif source_file:
             source = Path(source_file).read_text(encoding="utf-8")
+        elif exercise.kind != "code":
+            # Static kinds answer on one line; stdin.read() would swallow
+            # the newline and wait for EOF forever.
+            source = click.prompt("Your answer")
         else:
             console.print("\n[dim]Paste your code, then Ctrl-Z / Ctrl-D to end input:[/dim]")
             try:
