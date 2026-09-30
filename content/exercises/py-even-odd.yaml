@@ -1,0 +1,38 @@
+id: py-even-odd
+title: Even or Odd
+skills: [conditionals, arithmetic]
+difficulty: 1
+prompt: |
+  Read one integer from standard input and report whether it is even or odd.
+
+  Rules:
+  - Print exactly `even` or `odd` (lowercase, no punctuation).
+  - Zero is even.
+  - Negative inputs are valid.
+
+  The starter always answers "odd" -- it has no decision in it yet.
+hints:
+  - "The remainder operator is %."
+  - "n % 2 == 0 means the number divides evenly."
+starter: |
+  n = int(input())
+  print("odd")
+solution: |
+  n = int(input())
+  if n % 2 == 0:
+      print("even")
+  else:
+      print("odd")
+tests:
+  - input: "4\n"
+    expected: "even"
+    hidden: false
+  - input: "7\n"
+    expected: "odd"
+    hidden: false
+  - input: "0\n"
+    expected: "even"
+    hidden: true
+  - input: "-3\n"
+    expected: "odd"
+    hidden: true

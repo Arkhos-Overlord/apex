@@ -121,9 +121,13 @@ class LearnerState(BaseModel):
     def get_mastery_probability(self, topic: str) -> float:
         """Return the current mastery probability for *topic* (BKT mode).
 
-        Returns ``MASTERED`` (0.95) when the learner has never attempted
-        the topic, signalling that the skill is assumed mastered for the
-        purpose of exercise selection.
+        A topic the learner has never attempted returns
+        ``bkt_params.p_init`` -- the model's prior that the skill is not yet
+        known.  Returning :data:`MASTERED` for unseen topics instead (which
+        is what this used to do) reports a brand-new learner as having
+        mastered every skill in the curriculum, which makes
+        :meth:`is_mastered` and exercise selection useless in exactly the
+        situation they exist for.
 
         Args:
             topic: Skill name to look up.
@@ -131,7 +135,7 @@ class LearnerState(BaseModel):
         Returns:
             Mastery probability in [0, 1].
         """
-        return self.mastery_probabilities.get(topic, MASTERED)
+        return self.mastery_probabilities.get(topic, self.bkt_params.p_init)
 
     def is_mastered(self, topic: str) -> bool:
         """Return ``True`` when the topic is considered mastered.
@@ -170,8 +174,24 @@ class LearnerState(BaseModel):
 
     # ── persistence ──────────────────────────────────────────────────────
 
+    def mastery_units(self) -> dict[str, float]:
+        """Return mastery on a single canonical 0-1 scale.
+
+        Two scales live in this model: ``mastery_scores`` is Elo's 0-100
+        integer and ``mastery_probabilities`` is BKT's 0-1 probability.
+        They must not be written to the same store column without
+        normalising, or a learner in Elo mode reads back as 100x too
+        strong and every skill looks mastered.
+        """
+        if BKT_MODE:
+            return dict(self.mastery_probabilities)
+        return {k: v / 100.0 for k, v in self.mastery_scores.items()}
+
     def save(self, learner: str) -> None:
-        """Persist the current mastery scores to the attached store.
+        """Persist the current mastery to the attached store.
+
+        Writes the canonical 0-1 map from :meth:`mastery_units`, whichever
+        mode is active.
 
         Args:
             learner: Unique learner identifier passed to the store.
@@ -182,10 +202,10 @@ class LearnerState(BaseModel):
         """
         if self.persistence is None:
             raise StoreError("No persistence store attached")
-        self.persistence.set_mastery(learner, {k: float(v) for k, v in self.mastery_scores.items()})
+        self.persistence.set_mastery(learner, self.mastery_units())
 
     def load(self, learner: str) -> None:
-        """Replace in-memory mastery scores with those from the store.
+        """Replace in-memory mastery with that from the store.
 
         Also appends the reloaded topics to ``attempt_history`` as
         synthetic ``"exposure"`` evidence so downstream consumers see
@@ -198,7 +218,10 @@ class LearnerState(BaseModel):
             raise StoreError("No persistence store attached")
         stored = self.persistence.get_mastery(learner)
         now = datetime.now(timezone.utc).isoformat()
-        for topic, score in stored.items():
-            self.mastery_scores[topic] = round(score)
+        for topic, probability in stored.items():
+            if BKT_MODE:
+                self.mastery_probabilities[topic] = probability
+            else:
+                self.mastery_scores[topic] = round(probability * 100)
             self.confidence_levels.setdefault(topic, 0.5)
             self.evidence.append({"type": "exposure", "topic": topic, "timestamp": now})

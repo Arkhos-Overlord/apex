@@ -1,16 +1,31 @@
 id: py-hello
-title: Hello, Name
+title: Hello, Learner
 skills: [io]
 difficulty: 1
 prompt: |
-  Read a name from standard input and print `Hello, <name>!`.
+  Read a single name from standard input and greet it.
+
+  Rules:
+  - Read one line from stdin.
+  - Print exactly `Hello, <name>!` and nothing else.
+
+  The greeting is checked character for character, so watch the punctuation.
+hints:
+  - input() already discards the trailing newline for you.
+  - An f-string keeps the name and the punctuation together, like f"Hello, {name}!"
 starter: |
   name = input()
-  # print the greeting
+  print("Hello, " + name)
+solution: |
+  name = input()
+  print(f"Hello, {name}!")
 tests:
   - input: "Ada\n"
-    expected: "Hello, Ada!\n"
+    expected: "Hello, Ada!"
     hidden: false
   - input: "Grace\n"
-    expected: "Hello, Grace!\n"
+    expected: "Hello, Grace!"
+    hidden: true
+  - input: "a\n"
+    expected: "Hello, a!"
     hidden: true

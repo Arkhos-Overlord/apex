@@ -1,30 +1,50 @@
-"""Entry point for Apex CLI.
+"""Entry point for the Apex CLI.
 
-Provides the main click group and registers all subcommands.
+Registers every subcommand. Kept as a plain list of imports so the command
+surface is readable in one place.
 """
 
 from __future__ import annotations
 
 import click
 
-from apex.cli.commands import course, dashboard, practice, progress, teach
+from apex import __version__
+from apex.cli.commands import (
+    config_group,
+    course,
+    courses,
+    dashboard,
+    doctor,
+    graph,
+    practice,
+    progress,
+    relations,
+    teach,
+)
 from apex.cli.docker import docker_group
 
 
 @click.group()
-@click.version_option(version="0.2.0", prog_name="apex")
+@click.version_option(version=__version__, prog_name="apex")
 def cli() -> None:
-    """Apex CLI - AI-powered learning tool.
+    """Apex CLI - an adaptive learning engine.
 
-    Use subcommands to teach, practice, and track your progress.
+    Every number this prints comes from your real progress. Work through a
+    course with 'apex practice', inspect what you know with 'apex progress',
+    and see the knowledge web itself with 'apex graph' or 'apex dashboard'.
     """
 
 
 cli.add_command(teach)
+cli.add_command(courses)
 cli.add_command(course)
 cli.add_command(practice)
 cli.add_command(progress)
+cli.add_command(graph)
 cli.add_command(dashboard)
+cli.add_command(doctor)
+cli.add_command(relations)
+cli.add_command(config_group)
 cli.add_command(docker_group)
 
 
@@ -33,5 +53,5 @@ if __name__ == "__main__":
 
 
 def main() -> None:
-    """Entry point for apex CLI."""
+    """Console-script entry point."""
     cli()

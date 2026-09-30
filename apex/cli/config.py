@@ -12,17 +12,27 @@ from pydantic import BaseModel
 
 
 class Config(BaseModel):
-    """User configuration for Apex CLI.
+    """User configuration for the Apex CLI.
 
     Attributes:
         api_key: Optional API key for external services.
         default_course: Optional default course identifier.
         log_level: Logging level string, defaults to 'INFO'.
+        learner: Which learner profile the store is keyed by.
+        teacher: Default teacher persona for ``apex teach``.
+        db_path: Explicit path to the learner database, or ``None`` to use
+            ``~/.apex/apex.db``.
+        content_dir: Explicit path to the content library, or ``None`` to
+            auto-detect it by walking up from the package.
     """
 
     api_key: str | None = None
     default_course: str | None = None
     log_level: str = "INFO"
+    learner: str = "default"
+    teacher: str | None = None
+    db_path: str | None = None
+    content_dir: str | None = None
 
 
 def load_config() -> Config:

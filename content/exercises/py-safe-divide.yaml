@@ -1,0 +1,41 @@
+id: py-safe-divide
+title: Division Without the Crash
+skills: [error-handling]
+difficulty: 2
+prompt: |
+  Read two integers from standard input and print their quotient, but handle
+  division by zero instead of letting the program die.
+
+  Rules:
+  - Read two space-separated integers on one line.
+  - If the divisor is zero, print exactly `undefined` and nothing else.
+  - Otherwise print `a / b` with the fractional part kept (`7 2` is `3.5`,
+    not `3`).
+  - Integer division with `//` is the trap here.
+
+  The starter divides unconditionally, so `1 0` raises ZeroDivisionError.
+hints:
+  - "Check b == 0 before dividing, and return early or use else."
+  - "The / operator keeps the fractional part; // truncates it."
+starter: |
+  a, b = map(int, input().split())
+  print(a // b)
+solution: |
+  a, b = map(int, input().split())
+  if b == 0:
+    print("undefined")
+  else:
+    print(a / b)
+tests:
+  - input: "7 2\n"
+    expected: "3.5"
+    hidden: false
+  - input: "1 0\n"
+    expected: "undefined"
+    hidden: false
+  - input: "-9 2\n"
+    expected: "-4.5"
+    hidden: true
+  - input: "6 3\n"
+    expected: "2.0"
+    hidden: true

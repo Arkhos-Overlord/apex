@@ -1,19 +1,35 @@
 id: py-sum-two
-title: Sum of Two Numbers
-skills: [io, arithmetic]
+title: Sum of Two Integers
+skills: [arithmetic, io]
 difficulty: 1
 prompt: |
-  Read two integers, one per line, and print their sum.
+  Read two space-separated integers from standard input and print their sum.
+
+  Rules:
+  - The two numbers are on one line, separated by a single space.
+  - Print the sum and nothing else.
+  - Negative and zero inputs are valid; "additive inverse cancels to zero".
+
+  The starter has the right shape but the wrong operator.
+hints:
+  - "a, b = map(int, input().split()) unpacks both numbers in one line."
+  - "The + operator adds. The starter currently subtracts."
 starter: |
-  a = input()
-  b = input()
+  a, b = map(int, input().split())
+  print(a - b)
+solution: |
+  a, b = map(int, input().split())
+  print(a + b)
 tests:
-  - input: "2\n3\n"
-    expected: "5\n"
+  - input: "2 3\n"
+    expected: "5"
     hidden: false
-  - input: "-7\n7\n"
-    expected: "0\n"
+  - input: "-5 5\n"
+    expected: "0"
     hidden: true
-  - input: "1000000\n1\n"
-    expected: "1000001\n"
+  - input: "0 0\n"
+    expected: "0"
+    hidden: true
+  - input: "1000000 1\n"
+    expected: "1000001"
     hidden: true

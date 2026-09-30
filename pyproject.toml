@@ -1,43 +1,99 @@
 [build-system]
-requires = ["setuptools>=68.0", "wheel"]
+requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "apex-edu"
+name = "apex"
 version = "0.1.0"
-description = "APEX - AI-Powered eXperiential Education: A standalone teaching platform"
-requires-python = ">=3.10"
+description = "An adaptive learning engine that grows a knowledge web around what you know"
+readme = "apex/README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+keywords = ["education", "adaptive-learning", "knowledge-tracing", "spaced-repetition"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Education",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Education",
+]
+
+# Pinned to what the code actually imports. `markdown` and `fpdf2` are
+# optional at runtime and are exercised through their own fallbacks, so
+# they are extras rather than hard requirements.
 dependencies = [
     "click>=8.1",
     "rich>=13.0",
-    "fastapi>=0.104",
-    "uvicorn[standard]>=0.24",
-    "pydantic>=2.0",
-    "pyyaml>=6.0",
-    "fpdf2>=2.7",
-    "markdown>=3.4",
+    "pydantic>=2.5",
+    "PyYAML>=6.0",
+    "reportlab>=4.0",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "pytest-asyncio>=0.21", "httpx>=0.24"]
+tts = ["pyttsx3>=2.90"]
+pdf-fpdf = ["fpdf2>=2.7"]
+# The web dashboard in dashboard/ is a separate delivery surface. The CLI
+# engine does not need a web server installed, so FastAPI and friends are
+# an extra rather than a hard requirement.
+dashboard = [
+    "fastapi>=0.104",
+    "uvicorn[standard]>=0.24",
+    "jinja2>=3.1",
+]
+docker = ["docker>=6.0"]
+dev = [
+    "pytest>=8.0",
+    "pytest-timeout>=2.2",
+]
 
 [project.scripts]
-apex = "apex.cli.main:cli"
+apex = "apex.cli.main:main"
 apex-docker = "apex.cli.docker:main"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["apex*"]
+[project.urls]
+Homepage = "https://github.com/Arkhos-Overlord/apex"
 
-[tool.ruff]
-target-version = "py310"
-line-length = 100
-
-[tool.mypy]
-python_version = "3.10"
-warn_return_any = true
-strict = true
+[tool.setuptools]
+# The content library is data, not code, and it lives at the repository
+# root so the exercise bank is reviewable as YAML rather than buried in a
+# package. session.default_content_root() walks up to find it, and
+# APEX_CONTENT_DIR overrides both.
+packages = [
+    "apex",
+    "apex.cli",
+    "apex.core",
+    "apex.engine",
+    "apex.teachers",
+]
 
 [tool.pytest.ini_options]
-testpaths = ['apex/tests']
-asyncio_mode = 'auto'
+testpaths = ["apex/tests"]
+python_files = ["test_*.py"]
+# The suite shells out to real subprocesses for the sandbox tests, so it
+# needs headroom on a loaded machine.
+timeout = 300
+filterwarnings = [
+    "ignore::UserWarning:apex.engine.content_gen",
+]
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_configs = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+
+[[tool.mypy.overrides]]
+# Deliberate: code_exec returns dicts and grading is best-effort.
+module = "apex.engine.code_exec"
+disallow_untyped_defs = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]
+ignore = ["E501"]

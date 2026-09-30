@@ -1,0 +1,46 @@
+id: py-fibonacci
+title: Fibonacci by Recursion
+skills: [recursion, functions]
+difficulty: 3
+prompt: |
+  Define a recursive function that returns the nth Fibonacci number, then
+  print the value for the `n` read from standard input.
+
+  Rules:
+  - `fib(0)` is 0 and `fib(1)` is 1.
+  - For `n >= 2`, `fib(n)` is `fib(n - 1) + fib(n - 2)`.
+  - Print `fib(n)` for the input and nothing else.
+  - The recursion must be genuine -- calling `fib` from `fib`.
+
+  The starter iterates, which sidesteps the point of the exercise.
+hints:
+  - "Every recursive function needs a base case that returns without calling itself."
+  - "def fib(n): if n < 2: return n; return fib(n - 1) + fib(n - 2)"
+starter: |
+  n = int(input())
+  a, b = 0, 1
+  for _ in range(n):
+      a, b = b, a + b
+  print(a)
+solution: |
+  def fib(n: int) -> int:
+      if n < 2:
+          return n
+      return fib(n - 1) + fib(n - 2)
+
+
+  n = int(input())
+  print(fib(n))
+tests:
+  - input: "10\n"
+    expected: "55"
+    hidden: false
+  - input: "0\n"
+    expected: "0"
+    hidden: false
+  - input: "1\n"
+    expected: "1"
+    hidden: true
+  - input: "20\n"
+    expected: "6765"
+    hidden: true

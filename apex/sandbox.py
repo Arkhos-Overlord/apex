@@ -369,14 +369,13 @@ class DockerRunner:
         args.extend(
             [
                 "--cap-drop=ALL",
-                "-v",
-                f"{os.path.abspath(script_path)}:/tmp/code.py:ro",
+                f"--volume={os.path.realpath(script_path)}:/sandbox/apex_run.py:ro",
                 self.image,
                 "python",
                 "-I",
                 "-S",
                 "-B",
-                "/tmp/code.py",
+                "/sandbox/apex_run.py",
             ]
         )
         return args
