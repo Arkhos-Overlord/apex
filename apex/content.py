@@ -53,8 +53,8 @@ class Skill(BaseModel):
 class ContentLibrary:
     """Loads and validates skills and exercises from YAML files."""
 
-    def __init__(self, root: Path):
-        self.root = root
+    def __init__(self, root: str | Path):
+        self.root = Path(root)
         self.skills: dict[str, Skill] = {}
         self.exercises: dict[str, Exercise] = {}
         self.reload()

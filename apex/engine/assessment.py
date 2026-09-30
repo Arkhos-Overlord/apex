@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 import random
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 # ---------------------------------------------------------------------------
@@ -84,7 +84,7 @@ class SpacedRepetition:
         Card
             The updated (or newly created) card.
         """
-        reference = now if now is not None else datetime.now(UTC)
+        reference = now if now is not None else datetime.now(timezone.utc)
         card = dict(self._cards.get(material, self._new_card(material, reference)))
         self._advance(card, quality, reference)
         self._cards[material] = card
@@ -128,16 +128,15 @@ class SpacedRepetition:
         ----------
         learner_state:
             May carry per-topic metadata; currently unused by this
-            implementation but reserved for future filtering.
-        now:
-            Reference timestamp.  Defaults to ``datetime.now(timezone.utc)``.
+            implementation but reserved for future filtering.            now:
+                Reference timestamp.  Defaults to ``datetime.now(timezone.utc)``.
 
         Returns
         -------
         list[str]
             Sorted list of due material ids.
         """
-        reference = now if now is not None else datetime.now(UTC)
+        reference = now if now is not None else datetime.now(timezone.utc)
         due: list[str] = [
             material for material, card in self._cards.items() if card["next_date"] <= reference
         ]
@@ -641,7 +640,13 @@ def _split_sentences(text: str) -> list[str]:
 
 
 def _pick_keyword(words: list[str], rng: random.Random) -> str | None:
-    """Pick a blankable keyword from *words*, preferring longer non-stop words."""
+    """Pick a blankable keyword from *words*, preferring longer non-stop words.
+
+    The choice is deterministic (first longest candidate wins); only the
+    sentence and distractor order are driven by the seeded RNG, so a
+    ``QuizGenerator(seed=...)`` produces identical output across runs and
+    interpreters.
+    """
     clean: list[str] = []
     for w in words:
         stripped = w.strip(".,!?;:\"'()[]{}").lower()
@@ -649,7 +654,10 @@ def _pick_keyword(words: list[str], rng: random.Random) -> str | None:
             clean.append(stripped)
     if not clean:
         return None
-    best = max(clean, key=lambda w: (len(w), hash(w) % 10000 / 10000.0))
+    best = clean[0]
+    for w in clean[1:]:
+        if len(w) > len(best):
+            best = w
     return best
 
 

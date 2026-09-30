@@ -1,259 +1,139 @@
 # APEX — AI-Powered eXperiential Education
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Python](https://img.shields.io/badge/Python-3.11%2B-blue)](https://python.org)
-[![Tests](https://img.shields.io/badge/Tests-243%2F243-brightgreen)](https://github.com/Arkhos-Overlord/apex/actions)
-[![Lint](https://img.shields.io/badge/Lint-Clean-success)](https://github.com/Arkhos-Overlord/apex/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://python.org)
+[![Tests](https://img.shields.io/badge/tests-252%20passing-brightgreen)](#running-tests)
 
-> A standalone teaching platform that turns any AI agent into a personalized instructor. Build courses, execute code, track mastery, and learn with adaptive difficulty — all from the terminal or a browser.
+> A standalone teaching platform that turns any AI agent into a personalized instructor. Real sandboxed code execution, Bayesian knowledge tracing, SM-2 spaced repetition, and an interactive dashboard — no vendor lock-in.
 
-## Why APEX?
+## What APEX actually does
 
-APEX is **standalone**. It works with any AI agent, any model, any provider. Your courses, progress, and learner state are stored as local JSON files. No vendor lock-in.
-
-| Feature | APEX | Traditional Tools |
-|---|---|---|
-| **Deployment** | Standalone CLI + web app | Plugin for specific agents only |
-| **Code execution** | Real sandboxed Python/JS with auto-grading | Static simulations only |
-| **Dashboard** | Interactive charts, knowledge graph, mastery tracking | Basic browser render |
-| **Adaptive learning** | Elo-style difficulty algorithm | Simple evidence tracking |
-| **Spaced repetition** | SM-2 algorithm | None |
-| **Teacher personas** | 4 AI personas with voice | Static profiles |
-| **Content formats** | SVG, code, TTS, PDF, markdown→exercise | Text, images, videos |
-| **Assessment** | Auto-generated MCQ, fill-in-blank, coding challenges | None |
-
-## Features
-
-### 🎓 Core Engine
-- **Course model** — structured curriculum with chapters, lessons, exercises
-- **Learner tracking** — mastery scores (0-100), attempt history, confidence levels, evidence-based progress
-- **Adaptive difficulty** — Elo-style rating adjusts problem difficulty based on performance in real-time
-
-### ⚡ Code Execution Engine
-- **Safe sandboxed execution** — Python and JavaScript run in isolated subprocesses with timeout and memory limits
-- **Auto-grading** — compare code output against expected results with detailed feedback
-- **Test case generation** — auto-generate test cases from lesson content
-
-### 📊 Web Dashboard
-- **Interactive charts** — mastery trends, weekly activity, completion radar
-- **Knowledge graph** — force-directed visualization of concept relationships
-- **Heatmap** — calendar-style view of learning activity
-- **Spaced repetition schedule** — optimized review intervals
-- **Dark theme** with smooth animations and responsive design
-
-### 🧠 Assessment System
-- **Spaced repetition** — SM-2 algorithm schedules reviews based on forgetting curve
-- **Auto-quiz generation** — multiple choice, fill-in-blank, and coding challenges from lesson content
-- **Mastery scoring** — 0-100 scale with confidence intervals, exposure tracking
-
-### 🎨 Multi-Modal Content Generation
-- **SVG diagrams** — auto-generate concept diagrams (flowcharts, hierarchies, mind maps)
-- **Code examples** — generate working, commented code examples
-- **TTS voice narration** — text-to-speech for lessons using Hermes infrastructure
-- **PDF handouts** — generate styled PDF documents from markdown
-- **Markdown-to-exercise parser** — convert lesson content into structured exercises
-
-### 🗣️ Teacher Personas
-- **The Mentor** — patient, Socratic, explains step-by-step
-- **The Drill Sergeant** — direct, high-expectations, lots of practice
-- **The Guide** — navigational, helps find resources, inquiry-based
-- **The Storyteller** — narrative-driven, uses stories to teach concepts
-- Each persona has voice configuration, teaching style, and Socratic questioning patterns
+| Capability | Implementation |
+|---|---|
+| **Code execution** | Python (and JavaScript) run in isolated subprocesses: POSIX `RLIMIT_AS` / `RLIMIT_CPU` / `RLIMIT_NPROC` / `RLIMIT_FSIZE` / `RLIMIT_CORE` in the child, env scrubbing, `setsid` isolation, wall-clock kill. Optional `DockerRunner` adds a container with `--network=none --read-only --cap-drop=ALL`. |
+| **Auto-grading** | Submissions run against YAML-defined test cases (public + hidden), scored 0–1. |
+| **Adaptive selection** | Bayesian Knowledge Tracing (Corbett & Anderson 1994) tracks per-skill mastery; the weakest unmastered skill picks the next exercise. Prerequisite cycles are rejected at load time. |
+| **Elo difficulty** | Per-topic learner/content ratings (K-factor 32) suggest difficulty 1–10 and expose a ZPD view. |
+| **Spaced repetition** | SM-2 with 1.3 easiness floor, interval growth 1 → 6 → n·EF. |
+| **Quiz generation** | Deterministic (seeded) MCQ / fill-in-the-blank / coding prompts from lesson text. |
+| **Content generation** | SVG diagrams (flowchart / tree / mind map), curated code examples, TTS stub (Hermes when configured), markdown→PDF handouts, markdown→exercise parser. |
+| **Teacher personas** | Mentor, Drill Sergeant, Guide, Storyteller — greeting/explanation/questions/corrections in each voice. |
+| **Dashboard** | FastAPI + Chart.js dark SPA: stats, heatmap, per-topic mastery, knowledge graph, spaced-repetition schedule. |
+| **Persistence** | SQLite (`apex.db`): mastery, attempts, submissions. JSON-serialized, no pickle. |
 
 ## Quick Start
-
-### Install
 
 ```bash
 git clone https://github.com/Arkhos-Overlord/apex.git
 cd apex
-pip install -e .
+pip install -e ".[dev]"
 ```
 
-### Start the Web Dashboard
+### Practice from the CLI
 
 ```bash
-cd dashboard
-python -m uvicorn server:app --host 0.0.0.0 --port 8080
-```
+# Adaptive session: picks exercises via BKT, runs your code in the sandbox,
+# grades against hidden tests, updates mastery in apex.db
+apex practice --rounds 3
 
-Open [http://localhost:8080](http://localhost:8080) in your browser.
-
-### Use the CLI
-
-```bash
-# Start learning a topic
+# See what skills/exercises are available
 apex teach python
 
-# Show course details
-apex course intro-python
+# Inspect a course's exercises
+apex course py
 
-# Adaptive practice session
-apex practice
-
-# Show learning progress
+# Review mastery
 apex progress
+```
 
-# Open the web dashboard
-apex dashboard
+Environment: `APEX_DB` (default `./apex.db`), `APEX_CONTENT_DIR` (default `./content`), `APEX_LEARNER` (default `default`), `APEX_OUTPUT_DIR` (generated artifacts).
+
+### Web dashboard
+
+```bash
+apex dashboard            # serves http://localhost:8080 and opens a browser
+# or directly:
+uvicorn dashboard.server:app --host 0.0.0.0 --port 8080
 ```
 
 ## Architecture
 
 ```
 apex/
-├── core/                    # Core engine
-│   ├── course.py            # Course data model
-│   ├── learner.py           # LearnerState + tracking
-│   └── adaptive.py          # Adaptive difficulty algorithm
-├── engine/                  # Execution engines
-│   ├── code_exec.py         # Sandboxed code execution + auto-grading
-│   ├── assessment.py        # Spaced repetition, quiz generator, mastery scorer
-│   └── content_gen.py       # SVG, code, voice, PDF generation
-├── teachers/                # AI teacher personas
-│   ├── teacher_config.py    # 4 teacher profiles
-│   └── teacher_engine.py    # Personality-aware instruction
-├── cli/                     # Command-line interface
-│   ├── main.py              # Entry point
-│   ├── commands.py          # teach, course, practice, progress, dashboard
-│   └── config.py            # Configuration management
-├── dashboard/               # Web dashboard
-│   ├── server.py            # FastAPI backend
-│   ├── templates/           # HTML templates
-│   └── static/              # CSS, JS (Chart.js visualizations)
-├── tests/                   # 208 tests, all passing
-└── pyproject.toml           # Package configuration
+├── core/
+│   ├── course.py            # Course / Chapter / Lesson (Pydantic)
+│   ├── learner.py           # LearnerState + mastery tracking
+│   ├── adaptive.py          # Elo-style difficulty + ZPD
+│   └── bkt.py               # Bayesian Knowledge Tracing
+├── engine/
+│   ├── code_exec.py         # run_code / grade_code / test-case generation
+│   ├── assessment.py        # SM-2 spaced repetition, quiz gen, mastery scorer
+│   └── content_gen.py       # SVG, code examples, TTS, PDF, md→exercise
+├── teachers/                # 4 personas + personality-aware instruction
+├── cli/                     # teach, course, practice, progress, dashboard, docker
+├── content.py               # YAML exercise/skill library (cycle-checked)
+├── sandbox.py               # LocalPythonRunner + DockerRunner (Runner protocol)
+└── store.py                 # SQLite persistence (mastery, attempts, submissions)
+dashboard/                   # FastAPI server + dark Chart.js SPA
+content/                     # skills.yaml + exercises/*.yaml (add your own!)
 ```
+
+### Adding content
+
+Drop a YAML file into `content/exercises/`:
+
+```yaml
+id: py-lists-basics
+title: List Basics
+skills: [io]
+difficulty: 1
+prompt: |
+  Read three numbers and print them sorted.
+starter: |
+  nums = []
+  for _ in range(3):
+      nums.append(int(input()))
+tests:
+  - input: "3 1 2\n"
+    expected: "1 2 3\n"
+    hidden: false
+  - input: "-1 -5 0\n"
+    expected: "-5 -1 0\n"
+    hidden: true
+```
+
+Skills live in `content/skills.yaml` with optional prerequisites; cycles are rejected on load.
 
 ## Running Tests
 
 ```bash
-# Run all tests
 python -m pytest apex/tests/ -q
-
-# Run with coverage
-python -m pytest apex/tests/ --cov=apex
-
-# Lint check
-ruff check apex/
-ruff format --check apex/
-mypy apex/
 ```
 
-**208 tests passing, 0 lint errors.**
-
-## API Reference
-
-### Core Engine
-
-```python
-from apex.core import Course, LearnerState, AdaptiveDifficulty
-
-# Create a course
-course = Course(id="python-101", title="Python 101", description="Learn Python", duration_weeks=6)
-
-# Track learner progress
-learner = LearnerState()
-learner.record_attempt("variables", result="correct")
-print(learner.get_mastery("variables"))  # 0-100
-
-# Adaptive difficulty
-ad = AdaptiveDifficulty()
-difficulty = ad.suggest_difficulty(learner, "loops")
-```
-
-### Code Execution
-
-```python
-from apex.engine import run_code, grade_code
-
-# Run code safely
-result = run_code("print('Hello')", language="python")
-# {success: True, output: 'Hello\n', error: '', exit_code: 0, execution_time: 0.01}
-
-# Grade code against test cases
-score = grade_code(
-    source="def add(a, b): return a + b",
-    test_cases=[{"input": "add(1,2)", "expected_output": "3", "description": "basic addition"}],
-    language="python",
-)
-# {passed: 1, total: 1, score: 1.0, details: [...]}
-```
-
-### Assessment
-
-```python
-from apex.engine import SpacedRepetition, QuizGenerator, MasteryScorer
-
-# Spaced repetition scheduling
-sr = SpacedRepetition()
-sr.schedule_review("python-looping", quality=3)  # 0-5 quality
-next = sr.next_review_date("python-looping")
-
-# Auto-quiz generation
-qg = QuizGenerator()
-mcqs = qg.generate_mcq("# Python Loops", count=5)
-# [{question, options, answer, difficulty, topic}, ...]
-```
+**252 passed, 1 skipped** (the fork-bomb guard test is skipped when running as root, because the Linux kernel does not enforce `RLIMIT_NPROC` for uid 0 — the limit is still applied for non-root users).
 
 ## Docker
 
-APEX can be deployed as a Docker container for easy deployment.
-
-### Quick Start
-
 ```bash
-# Build the image
 docker compose build
-
-# Start the platform
 docker compose up -d
-
-# Open the dashboard
-# http://localhost:8080
+# Dashboard: http://localhost:8080
+apex docker build | up | down | logs
 ```
 
-### Using the CLI
-
-```bash
-# Build, start, stop, and view logs
-apex docker build
-apex docker up
-apex docker down
-apex docker logs
-```
-
-### Persistence
-
-Data is persisted in Docker volumes:
-- apex-data — SQLite database (mastery scores, attempt history)
-- apex-sessions — Learner session data
-- ./content — Exercises and skills (hot-reloadable)
-
-### Configuration
-
-Environment variables:
 | Variable | Default | Description |
 |---|---|---|
-| APEX_DB | /data/apex.db | SQLite database path |
-| APEX_CONTENT_DIR | /app/content | Content directory |
-| APEX_TIMEOUT_S | 30 | Code execution timeout |
-| APEX_MEMORY_MB | 256 | Memory limit for code execution |
-| HERMES_TTS_AVAILABLE | 0 | Enable text-to-speech |
+| `APEX_DB` | `/data/apex.db` | SQLite database path (volume `apex-data`) |
+| `APEX_CONTENT_DIR` | `/app/content` | Exercises/skills (hot-reloadable bind mount) |
+| `APEX_OUTPUT_DIR` | `/output` | Generated SVG/PDF artifacts (volume) |
+| `HERMES_TTS_AVAILABLE` | `0` | Enable Hermes TTS integration |
+
+## Sandbox notes (honest limitations)
+
+- The local runner is a hardening layer, not a security boundary against a determined attacker: for untrusted code, use `DockerRunner` (or add user namespaces/seccomp) and run as a non-root user.
+- Windows does not enforce rlimits; timeouts and env scrubbing still apply.
+- Generated quizzes are heuristic (keyword-based), not LLM-quality — wire your agent in via the persona/`instruct()` APIs to author real content.
 
 ## License
 
 MIT — see [LICENSE](LICENSE).
-
-## Contributing
-
-Contributions welcome! The project is structured to be extensible:
-
-1. Add new teacher personas in `apex/teachers/teacher_config.py`
-2. Add new content formats in `apex/engine/content_gen.py`
-3. Add new exercise types in `apex/engine/content_gen.py`
-4. Add new dashboard visualizations in `dashboard/static/js/app.js`
-
-## Acknowledgments
-
-Built as a standalone teaching platform for AI agents. APEX removes the plugin dependency and adds real code execution, adaptive learning, and interactive dashboards.

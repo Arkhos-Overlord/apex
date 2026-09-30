@@ -250,6 +250,22 @@ class CourseListResponse(BaseModel):
     courses: list[dict]
 
 
+class CourseCompletionResponse(BaseModel):
+    course_id: str
+    completion_percent: float = Field(ge=0, le=100)
+
+
+class TopicMasteryItem(BaseModel):
+    topic: str
+    score: float = Field(ge=0, le=100)
+
+
+class TopicMasteryResponse(BaseModel):
+    learner_id: str
+    course_id: str
+    topics: list[TopicMasteryItem]
+
+
 class LearnerProgressResponse(BaseModel):
     learner_id: str
     learner_name: str
@@ -506,6 +522,45 @@ async def course_progress(course_id: str):
         completion_pct=completion,
         lessons_completed=lessons_done,
         total_lessons=total_lessons,
+    )
+
+
+@app.get("/api/course/{course_id}/completion", response_model=CourseCompletionResponse)
+async def course_completion(course_id: str):
+    """Completion percentage consumed by the courses panel."""
+    course = _course_or_404(course_id)
+    if isinstance(course, JSONResponse):
+        return course
+
+    modules = course["modules"]
+    total_lessons = sum(m["lessons"] for m in modules)
+    lessons_done = round(total_lessons * 0.6)
+    completion = round(lessons_done / total_lessons * 100, 1) if total_lessons else 0.0
+
+    return CourseCompletionResponse(
+        course_id=course_id,
+        completion_percent=completion,
+    )
+
+
+@app.get("/api/learner/{learner_id}/mastery", response_model=TopicMasteryResponse)
+async def learner_topic_mastery(learner_id: str, course_id: str):
+    """Per-topic mastery scores (0-100) for one learner and course."""
+    learner = _learner_or_404(learner_id)
+    if isinstance(learner, JSONResponse):
+        return learner
+    if course_id not in COURSES:
+        return JSONResponse(status_code=404, content={"detail": f"Course '{course_id}' not found"})
+
+    topics = MASTERY.get(learner_id, {}).get(course_id, {})
+    items = [
+        TopicMasteryItem(topic=t, score=round(float(s) * 100, 1))
+        for t, s in sorted(topics.items())
+    ]
+    return TopicMasteryResponse(
+        learner_id=learner_id,
+        course_id=course_id,
+        topics=items,
     )
 
 

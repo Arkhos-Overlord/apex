@@ -3,7 +3,8 @@
 Defines a ``Runner`` protocol and two implementations:
 
 * ``LocalPythonRunner`` — runs user code in an isolated Python subprocess
-  on the host (POSIX: resource limits + setsid; env scrubbing).
+  on the host (POSIX: resource limits applied in the child via
+  ``preexec_fn``; env scrubbing; new session via ``setsid``).
 * ``DockerRunner`` — runs user code inside a Docker container with network,
   read-only rootfs, and UID/GID isolation.
 
@@ -16,11 +17,18 @@ from __future__ import annotations
 import asyncio
 import os
 import platform
+import signal
 import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
+
+_IS_POSIX = platform.system() != "Windows"
+
+if _IS_POSIX:
+    import resource
+
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -40,7 +48,7 @@ class RunResult:
     @property
     def ok(self) -> bool:
         """True when the process exited cleanly with code 0."""
-        return self.exit_code == 0
+        return self.exit_code == 0 and not self.timed_out
 
 
 @dataclass(frozen=True)
@@ -82,7 +90,8 @@ class Runner(Protocol):
 
 _SAFE_ENV_KEYS = frozenset(
     {
-        "PATH",
+        # Deliberately no PATH: sandboxed code should not exec system binaries,
+        # and the interpreter itself is spawned by absolute path.
         "HOME",
         "USER",
         "LANG",
@@ -104,6 +113,164 @@ def _scrub_env() -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
+# POSIX child-side resource limits
+# ---------------------------------------------------------------------------
+
+
+def _apply_rlimits(limits: Limits) -> None:  # pragma: no cover - runs in child
+    """Install rlimits in the forked child before exec (POSIX only).
+
+    Called via ``preexec_fn``; must never raise (a raise would abort the
+    spawn, which is still safe but unhelpful), so every call is guarded.
+    """
+    if not _IS_POSIX:
+        return
+
+    def _set(res: int, value: int) -> None:
+        try:
+            soft = resource.getrlimit(res)[0]
+            # Never lower an existing soft limit below our target —
+            # raising the soft limit up to the hard limit is allowed.
+            target = value if soft in (-1, resource.RLIM_INFINITY) or value < soft else soft
+            hard = resource.getrlimit(res)[1]
+            if hard not in (-1, resource.RLIM_INFINITY):
+                target = min(target, hard)
+            resource.setrlimit(res, (target, target if hard in (-1, resource.RLIM_INFINITY) else hard))
+        except (ValueError, OSError):
+            pass
+
+    if limits.memory_mb:
+        # Address space (covers heap + stack + mmap) — the strongest
+        # portable guard against runaway allocation.
+        as_bytes = int(limits.memory_mb) * 1024 * 1024
+        try:
+            resource.setrlimit(resource.RLIMIT_AS, (as_bytes, as_bytes))
+        except (ValueError, OSError):
+            pass
+    if limits.cpu_s:
+        _set(resource.RLIMIT_CPU, int(limits.cpu_s))
+    # No new processes from inside the sandbox.
+    try:
+        resource.setrlimit(resource.RLIMIT_NPROC, (0, 0))
+    except (ValueError, OSError):
+        pass
+    # Tiny writable-file budget so scripts cannot fill the disk.
+    fsize = 1 * 1024 * 1024
+    try:
+        resource.setrlimit(resource.RLIMIT_FSIZE, (fsize, fsize))
+    except (ValueError, OSError):
+        pass
+    # No core dumps (they can be large and may leak memory contents).
+    try:
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    except (ValueError, OSError):
+        pass
+
+
+def _child_setup(limits: Limits) -> None | callable:  # type: ignore[valid-type]
+    """Return a ``preexec_fn`` callback, or ``None`` when unsupported."""
+    if not _IS_POSIX:
+        return None
+    return lambda: _apply_rlimits(limits)
+
+
+def _kill_process_group(proc: subprocess.Popen) -> None:  # pragma: no cover - signal path
+    """Best-effort kill of the child and (on POSIX) its whole group."""
+    try:
+        if _IS_POSIX and proc.pid:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            return
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
+    try:
+        proc.kill()
+    except (ProcessLookupError, OSError):
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Shared async execution core
+# ---------------------------------------------------------------------------
+
+
+async def _run_argv(
+    cmd: list[str],
+    stdin: str,
+    limits: Limits,
+    *,
+    new_session: bool = False,
+    pre_exec: callable | None = None,  # type: ignore[valid-type]
+) -> RunResult:
+    """Execute *cmd* asynchronously and package the outcome as a RunResult."""
+    t0 = asyncio.get_event_loop().time()
+    timed_out = False
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdin=asyncio.subprocess.PIPE if stdin else asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=_scrub_env(),
+            start_new_session=new_session,
+            preexec_fn=pre_exec,
+        )
+    except OSError as exc:
+        return RunResult(
+            stdout="",
+            stderr=f"Failed to spawn process: {exc}",
+            exit_code=-1,
+            timed_out=False,
+            duration_ms=(asyncio.get_event_loop().time() - t0) * 1000,
+        )
+
+    try:
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(
+            proc.communicate(input=stdin.encode() if stdin else None),
+            timeout=limits.timeout_s,
+        )
+    except asyncio.TimeoutError:
+        timed_out = True
+        _kill_process_group(proc)
+        try:
+            await proc.wait()
+        except OSError:
+            pass
+        stdout_bytes, stderr_bytes = b"", b""
+
+    # A child killed by its own enforced limits (CPU budget via SIGXCPU, or
+    # SIGKILL e.g. from an OOM) is reported as a timeout-style resource kill.
+    import signal as _signal
+
+    if not timed_out and proc.returncode is not None and proc.returncode < 0:
+        if -proc.returncode in (_signal.SIGXCPU, _signal.SIGKILL):
+            timed_out = True
+            stderr_bytes = f"Execution terminated by resource limits (signal {-proc.returncode}).\n".encode()
+
+    stdout = stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else ""
+    stderr = stderr_bytes.decode("utf-8", errors="replace") if stderr_bytes else ""
+
+    if timed_out:
+        stderr = f"Execution timed out after {limits.timeout_s}s.\n" + stderr
+
+    max_out = limits.max_output_bytes
+    if max_out and len(stdout) > max_out:
+        stdout = stdout[:max_out] + "\n[… output truncated …]"
+    if max_out and len(stderr) > max_out:
+        stderr = stderr[:max_out] + "\n[… output truncated …]"
+
+    exit_code = proc.returncode if proc.returncode is not None else -1
+    duration_ms = (asyncio.get_event_loop().time() - t0) * 1000
+    return RunResult(
+        stdout=stdout,
+        stderr=stderr,
+        exit_code=exit_code,
+        timed_out=timed_out,
+        duration_ms=duration_ms,
+    )
+
+
+# ---------------------------------------------------------------------------
 # LocalPythonRunner
 # ---------------------------------------------------------------------------
 
@@ -112,125 +279,45 @@ def _scrub_env() -> dict[str, str]:
 class LocalPythonRunner:
     """Execute code in a restricted Python subprocess on the host machine.
 
-    On POSIX this applies `RLIMIT_AS` (address-space / memory), `RLIMIT_CPU`
-    (CPU time), `RLIMIT_NPROC` (process count), `RLIMIT_FSIZE` (file size),
-    and starts the child in its own session via `setsid` so it cannot reclaim
-    the terminal or signal the parent.
-
-    On Windows resource limits are not available; the runner still applies
-    timeouts and env scrubbing.
+    On POSIX the child receives ``RLIMIT_AS`` (address space), ``RLIMIT_CPU``,
+    ``RLIMIT_NPROC`` (0 — no forking), ``RLIMIT_FSIZE`` (1 MiB) and
+    ``RLIMIT_CORE`` (0) via ``preexec_fn`` before the interpreter starts, and
+    runs in its own session (``setsid``) so it cannot touch the parent's
+    terminal. On Windows only timeouts and env scrubbing apply (documented
+    limitation).
     """
 
-    python_exe: str = field(default_factory=lambda: sys.executable)
     limits: Limits = field(default_factory=Limits)
+    python_exe: str = field(default_factory=lambda: sys.executable)
 
     def __post_init__(self) -> None:
-        # dataclass frozen workaround — we only need this for type-checking
         if not os.path.isfile(self.python_exe):
             raise FileNotFoundError(f"python_exe not found: {self.python_exe}")
 
     async def run(self, code: str, stdin: str = "") -> RunResult:
-        t0 = asyncio.get_event_loop().time()
-        timed_out = False
-        proc: subprocess.CompletedProcess | None = None
-
-        script_fd, script_path = tempfile.mkstemp(suffix=".py", prefix="apex_sandbox_")
-        with os.fdopen(script_fd, "w", encoding="utf-8") as fh:
-            fh.write(code)
-
+        fd, script_path = tempfile.mkstemp(suffix=".py", prefix="apex_sandbox_")
         try:
-            cmd = self._build_cmd(script_path)
-            env = _scrub_env()
-
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdin=asyncio.subprocess.PIPE if stdin else asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=env,
-                start_new_session=_start_new_session(),
-            )
-
-            try:
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    proc.communicate(
-                        input=stdin.encode() if stdin else None,
-                    ),
-                    timeout=self.limits.timeout_s,
-                )
-            except TimeoutError:
-                timed_out = True
-                try:
-                    proc.kill()
-                except ProcessLookupError:
-                    pass
-                await proc.wait()
-                stdout_bytes = b""
-                stderr_bytes = b""
-
-            stdout = stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else ""
-            stderr = stderr_bytes.decode("utf-8", errors="replace") if stderr_bytes else ""
-
-            if timed_out:
-                stderr = f"Execution timed out after {self.limits.timeout_s}s.\n" + stderr
-
-            # Truncate output if needed
-            max_out = self.limits.max_output_bytes
-            if max_out and len(stdout) > max_out:
-                stdout = stdout[:max_out] + "\n[… output truncated …]"
-            if max_out and len(stderr) > max_out:
-                stderr = stderr[:max_out] + "\n[… output truncated …]"
-
-            exit_code = proc.returncode if proc.returncode is not None else -1
-            duration_ms = (asyncio.get_event_loop().time() - t0) * 1000
-            return RunResult(
-                stdout=stdout,
-                stderr=stderr,
-                exit_code=exit_code,
-                timed_out=timed_out,
-                duration_ms=duration_ms,
-            )
-        except OSError as exc:
-            duration_ms = (asyncio.get_event_loop().time() - t0) * 1000
-            return RunResult(
-                stdout="",
-                stderr=f"Failed to spawn process: {exc}",
-                exit_code=-1,
-                timed_out=False,
-                duration_ms=duration_ms,
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(code)
+            cmd = [
+                self.python_exe,
+                "-I",  # isolated mode: no user site, no PYTHON* env tricks
+                "-S",  # no site.py
+                "-B",  # no .pyc writes
+                script_path,
+            ]
+            return await _run_argv(
+                cmd,
+                stdin,
+                self.limits,
+                new_session=_IS_POSIX,
+                pre_exec=_child_setup(self.limits),
             )
         finally:
             try:
                 os.unlink(script_path)
             except OSError:
                 pass
-
-    # ------------------------------------------------------------------
-    # Internal
-    # ------------------------------------------------------------------
-
-    def _build_cmd(self, script_path: str) -> list[str]:
-        """Return the argv that launches the script under the restricted flags."""
-        base = [
-            self.python_exe,
-            "-I",  # isolated mode (no user-site, no environment imports)
-            "-S",  # no site.py import
-            "-B",  # no .pyc files written
-            script_path,
-        ]
-        if platform.system() != "Windows":
-            # POSIX: resource-limit wrapper
-            wrapper = _resource_wrapper_path()
-            if wrapper:
-                limits = self.limits
-                args: list[str] = []
-                if limits.memory_mb:
-                    args.extend(["-m", str(int(limits.memory_mb))])
-                if limits.cpu_s:
-                    args.extend(["-c", str(int(limits.cpu_s))])
-                if limits.cpu_s or limits.memory_mb:
-                    return [self.python_exe, wrapper, *args, script_path]
-        return base
 
 
 # ---------------------------------------------------------------------------
@@ -251,79 +338,16 @@ class DockerRunner:
     limits: Limits = field(default_factory=Limits)
 
     async def run(self, code: str, stdin: str = "") -> RunResult:
-        t0 = asyncio.get_event_loop().time()
-        timed_out = False
-
-        script_fd, script_path = tempfile.mkstemp(suffix=".py", prefix="apex_docker_")
-        with os.fdopen(script_fd, "w", encoding="utf-8") as fh:
-            fh.write(code)
-
+        fd, script_path = tempfile.mkstemp(suffix=".py", prefix="apex_docker_")
         try:
-            cmd = self._build_cmd(script_path)
-            env = _scrub_env()
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdin=asyncio.subprocess.PIPE if stdin else asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=env,
-            )
-            try:
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    proc.communicate(
-                        input=stdin.encode() if stdin else None,
-                    ),
-                    timeout=self.limits.timeout_s,
-                )
-            except TimeoutError:
-                timed_out = True
-                try:
-                    proc.kill()
-                except ProcessLookupError:
-                    pass
-                await proc.wait()
-                stdout_bytes = b""
-                stderr_bytes = b""
-
-            stdout = stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else ""
-            stderr = stderr_bytes.decode("utf-8", errors="replace") if stderr_bytes else ""
-
-            if timed_out:
-                stderr = f"Execution timed out after {self.limits.timeout_s}s.\n" + stderr
-
-            max_out = self.limits.max_output_bytes
-            if max_out and len(stdout) > max_out:
-                stdout = stdout[:max_out] + "\n[… output truncated …]"
-            if max_out and len(stderr) > max_out:
-                stderr = stderr[:max_out] + "\n[… output truncated …]"
-
-            exit_code = proc.returncode if proc.returncode is not None else -1
-            duration_ms = (asyncio.get_event_loop().time() - t0) * 1000
-            return RunResult(
-                stdout=stdout,
-                stderr=stderr,
-                exit_code=exit_code,
-                timed_out=timed_out,
-                duration_ms=duration_ms,
-            )
-        except OSError as exc:
-            duration_ms = (asyncio.get_event_loop().time() - t0) * 1000
-            return RunResult(
-                stdout="",
-                stderr=f"Failed to spawn container: {exc}",
-                exit_code=-1,
-                timed_out=False,
-                duration_ms=duration_ms,
-            )
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(code)
+            return await _run_argv(self._build_cmd(script_path), stdin, self.limits)
         finally:
             try:
                 os.unlink(script_path)
             except OSError:
                 pass
-
-    # ------------------------------------------------------------------
-    # Internal
-    # ------------------------------------------------------------------
 
     def _build_cmd(self, script_path: str) -> list[str]:
         limits = self.limits
@@ -336,6 +360,7 @@ class DockerRunner:
             "--user=65534:65534",
             "--pids-limit=16",
             "--memory=" + (f"{int(limits.memory_mb)}m" if limits.memory_mb else "128m"),
+            "--security-opt=no-new-privileges",
         ]
         if limits.cpu_s:
             # Docker CPU quota: period=100000, quota = cpu_s * 100000
@@ -344,6 +369,8 @@ class DockerRunner:
         args.extend(
             [
                 "--cap-drop=ALL",
+                "-v",
+                f"{os.path.abspath(script_path)}:/tmp/code.py:ro",
                 self.image,
                 "python",
                 "-I",
@@ -353,65 +380,3 @@ class DockerRunner:
             ]
         )
         return args
-
-
-# ---------------------------------------------------------------------------
-# POSIX resource-limit wrapper (bundled, written at import time)
-# ---------------------------------------------------------------------------
-
-_RESOURCE_WRAPPER_PATH: str = ""
-
-if platform.system() != "Windows":
-    _WRAPPER_SRC = r"""
-import resource
-import sys
-import runpy
-
-def _set_limits(memory_mb: int | None, cpu_s: int | None) -> None:
-    if memory_mb:
-        soft = memory_mb * 1024 * 1024
-        try:
-            resource.setrlimit(resource.RLIMIT_AS, (soft, soft))
-        except (ValueError, resource.error):
-            pass
-    if cpu_s:
-        try:
-            resource.setrlimit(resource.RLIMIT_CPU, (cpu_s, cpu_s))
-        except (ValueError, resource.error):
-            pass
-    # Restrict process count and file size as a safety net
-    try:
-        resource.setrlimit(resource.RLIMIT_NPROC, (0, 0))
-    except (ValueError, resource.error):
-        pass
-    try:
-        resource.setrlimit(resource.RLIMIT_FSIZE, (1024 * 1024, 1024 * 1024))  # 1 MiB max file
-    except (ValueError, resource.error):
-        pass
-
-if __name__ == "__main__":
-    memory = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else None
-    cpu = int(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2].isdigit() else None
-    _set_limits(memory, cpu)
-    # Remove our own args so the child sees only the script path
-    sys.argv = sys.argv[-1:]
-    runpy.run_path(sys.argv[0], run_name="__apex__")
-"""
-
-    _MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
-    _WRAPPER_PATH = os.path.join(_MODULE_DIR, "_resource_wrapper.py")
-    try:
-        with open(_WRAPPER_PATH, "w", encoding="utf-8") as fh:
-            fh.write(_WRAPPER_SRC)
-        _RESOURCE_WRAPPER_PATH = _WRAPPER_PATH
-    except OSError:
-        _RESOURCE_WRAPPER_PATH = ""
-
-
-def _resource_wrapper_path() -> str:
-    return _RESOURCE_WRAPPER_PATH
-
-
-def _start_new_session() -> bool:
-    """Return True on POSIX where setsid-style session isolation is available."""
-    return platform.system() != "Windows"

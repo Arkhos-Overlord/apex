@@ -21,7 +21,9 @@ DIAGRAM_TYPE_KEYWORDS: dict[str, list[str]] = {
     "mindmap": ["mind", "map", "brainstorm", "concept", "relationship"],
 }
 
-DEFAULT_TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "outputs"
+def _output_dir() -> Path:
+    """Directory for generated artifacts (never inside the package tree)."""
+    return Path(os.environ.get("APEX_OUTPUT_DIR", str(Path.home() / ".apex" / "outputs")))
 
 
 def _detect_diagram_type(topic: str) -> str:
@@ -38,8 +40,9 @@ def _build_flowchart_svg(topic: str) -> str:
     """Return a simple flowchart SVG as a raw string."""
     title = topic or "Process"
     node_count = min(4, max(2, len(title) % 5 + 2))
+    total_height = 80 + node_count * 60
     svg_lines: list[str] = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 80 + {node_count * 60}" width="400" height="{80 + node_count * 60}">',
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 {total_height}" width="400" height="{total_height}">',
         "  <style>",
         "    .node { fill: #e3f2fd; stroke: #1565c0; stroke-width: 2; rx: 8; ry: 8; }",
         "    .label { font-family: sans-serif; font-size: 14px; fill: #0d47a1; text-anchor: middle; }",
@@ -70,8 +73,9 @@ def _build_tree_svg(topic: str) -> str:
     """Return a simple tree/hierarchy SVG as a raw string."""
     title = topic or "Hierarchy"
     levels = min(3, max(2, len(title) % 3 + 2))
+    total_height = 100 + levels * 60
     svg_lines: list[str] = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 100 + {levels * 60}" width="400" height="{100 + levels * 60}">',
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 {total_height}" width="400" height="{total_height}">',
         "  <style>",
         "    .node { fill: #fff3e0; stroke: #e65100; stroke-width: 2; }",
         "    .label { font-family: sans-serif; font-size: 12px; fill: #bf360c; text-anchor: middle; }",
@@ -165,48 +169,10 @@ def generate_diagram(topic: str, style: str = "svg") -> str:
         "mindmap": _build_mindmap_svg,
     }
 
-    svg_string: str
-    try:
-        import svgwrite
-
-        _svgwrite_available = True
-    except ImportError:
-        _svgwrite_available = False
-
-    if _svgwrite_available:
-        import svgwrite
-
-        dwg = svgwrite.Drawing(
-            filename="diagram.svg",
-            size=("400px", "200px"),
-            profile="tiny",
-        )
-        dwg.add(dwg.text(topic or "Diagram", insert=("200", "20"), fill="#0d47a1", font_size="16"))
-        dwg.add(
-            dwg.rect(
-                insert=("50", "40"),
-                size=("300", "40"),
-                fill="#e3f2fd",
-                stroke="#1565c0",
-                rx=8,
-                ry=8,
-            )
-        )
-        dwg.add(
-            dwg.text(
-                "Node", insert=("200", "65"), fill="#0d47a1", font_size="14", text_anchor="middle"
-            )
-        )
-        try:
-            svg_string = dwg.tostring()
-        except AttributeError:
-            svg_string = dwg.tostring()
-    else:
-        svg_string = builders.get(diagram_type, _build_flowchart_svg)(topic)
-
+    builder = builders.get(diagram_type, _build_flowchart_svg)
+    svg_string = builder(topic)
     if not svg_string or not svg_string.strip():
         svg_string = _build_flowchart_svg(topic or "Fallback")
-
     return svg_string
 
 
@@ -361,7 +327,7 @@ def generate_voice(text: str, voice: str = "default") -> str:
             import warnings
 
             warnings.warn(
-                f"Her pay TTS raised {exc!r}; falling back to text stub.",
+                f"Hermes TTS raised {exc!r}; falling back to text stub.",
                 stacklevel=2,
             )
             tts_available = False
@@ -372,7 +338,7 @@ def generate_voice(text: str, voice: str = "default") -> str:
         "HERMES_TTS_AVAILABLE is not set to 1 — writing text to a .txt stub instead of audio.",
         stacklevel=2,
     )
-    out_dir = DEFAULT_TEMPLATE_DIR
+    out_dir = _output_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
     safe_name = text[:32].replace(" ", "_").replace("/", "_") or "silence"
     stub_path = out_dir / f"{safe_name}.txt"
@@ -458,7 +424,7 @@ def generate_pdf(content: str, template: str = "handout") -> str:
 
         html_body = markdown.markdown(content, extensions=["tables", "fenced_code"])
     except ImportError:
-        html_body = content.replace("\\n", "<br/>")
+        html_body = "<p>" + content.replace("&", "&amp;").replace("<", "&lt;").replace("\n", "<br/>") + "</p>"
 
     html_doc = f"""<!DOCTYPE html>
 <html lang="en">
@@ -471,7 +437,7 @@ def generate_pdf(content: str, template: str = "handout") -> str:
 </body>
 </html>"""
 
-    out_dir = DEFAULT_TEMPLATE_DIR
+    out_dir = _output_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
     pdf_path = out_dir / f"handout_{abs(hash(content)) % 1_000_000}.pdf"
 
@@ -486,28 +452,13 @@ def generate_pdf(content: str, template: str = "handout") -> str:
         pdf.write_html(html_body)
         pdf.output(str(pdf_path))
         return str(pdf_path)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001  # graceful fallback when fpdf2 is missing
         import warnings as _warnings
 
-        _warnings.warn(f"PDF generation failed: {exc}")
-        pdf_path.write_text(html_doc, encoding="utf-8")
-        return str(pdf_path)
-
-    try:
-        from reportlab.lib.pagesizes import A4  # noqa: I001
-        from reportlab.platypus import SimpleDocTemplate, Paragraph
-        from reportlab.lib.styles import getSampleStyleSheet
-
-        doc = SimpleDocTemplate(str(pdf_path), pagesize=A4)
-        styles = getSampleStyleSheet()
-        flowables: list[Any] = []
-        for line in html_body.split("<br/>"):
-            flowables.append(Paragraph(line.strip(), styles["Normal"]))
-        doc.build(flowables)
-        return str(pdf_path)
-    except ImportError:
-        pdf_path.write_text(html_doc, encoding="utf-8")
-        return str(pdf_path)
+        _warnings.warn(f"PDF generation failed ({exc}); writing HTML instead.")
+        html_path = pdf_path.with_suffix(".html")
+        html_path.write_text(html_doc, encoding="utf-8")
+        return str(html_path)
 
 
 def markdown_to_exercise(md: str) -> list[dict[str, str]]:

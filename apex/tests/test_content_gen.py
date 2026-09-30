@@ -19,8 +19,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from typing import Self
-
 from apex.engine import (
     generate_code_example,
     generate_diagram,
@@ -45,7 +43,7 @@ class _EnvVar:
         self.value = value
         self.old: str | None = None
 
-    def __enter__(self) -> Self:
+    def __enter__(self) -> "_EnvVar":
         self.old = os.environ.get(self.name)
         if self.value is None:
             os.environ.pop(self.name, None)

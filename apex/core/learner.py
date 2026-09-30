@@ -6,7 +6,7 @@ evidence of learning so the engine can personalise progression.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -76,7 +76,7 @@ class LearnerState(BaseModel):
             result: True when the learner answered correctly, False
                 otherwise.
         """
-        now = datetime.now(UTC).isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         self.attempt_history.append({"topic": topic, "result": result, "timestamp": now})
 
         if BKT_MODE:
@@ -197,7 +197,7 @@ class LearnerState(BaseModel):
         if self.persistence is None:
             raise StoreError("No persistence store attached")
         stored = self.persistence.get_mastery(learner)
-        now = datetime.now(UTC).isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         for topic, score in stored.items():
             self.mastery_scores[topic] = round(score)
             self.confidence_levels.setdefault(topic, 0.5)

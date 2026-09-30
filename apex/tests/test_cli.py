@@ -114,7 +114,7 @@ class TestTeachCommand:
     """Behaviour of the teach command."""
 
     def test_teach_runs_without_error(self) -> None:
-        """teach exits cleanly for a basic topic."""
+        """teach loads the library and lists skills for a basic topic."""
         from click.testing import CliRunner
 
         from apex.cli.main import cli
@@ -124,6 +124,7 @@ class TestTeachCommand:
         assert result.exit_code == 0
         assert "Python" in result.output
         assert "Creating course" in result.output
+        assert "exercises loaded" in result.output
 
     def test_teach_with_course_id(self) -> None:
         """teach accepts --course-id."""
@@ -144,61 +145,113 @@ class TestCourseCommand:
     """Behaviour of the course command."""
 
     def test_course_shows_details(self) -> None:
-        """course prints a table with the given id."""
+        """course prints a table with matching exercises."""
         from click.testing import CliRunner
 
         from apex.cli.main import cli
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["course", "python-basics"])
+        result = runner.invoke(cli, ["course", "py"])
         assert result.exit_code == 0
-        assert "python-basics" in result.output
         assert "Course Details" in result.output
+        assert "py-hello" in result.output
+
+    def test_course_unknown_id_lists_all(self) -> None:
+        """course with a non-matching id lists available exercises."""
+        from click.testing import CliRunner
+
+        from apex.cli.main import cli
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["course", "no-such-course"])
+        assert result.exit_code == 0
+        assert "No exercises match" in result.output
+        assert "py-hello" in result.output
 
 
 class TestPracticeCommand:
     """Behaviour of the practice command."""
 
-    def test_practice_runs(self) -> None:
-        """practice command starts a session."""
-        from apex.cli.main import cli
+    def test_practice_runs_and_updates_store(self, tmp_path, monkeypatch) -> None:
+        """practice grades exercises and persists attempts + mastery."""
         from click.testing import CliRunner
 
+        from apex.cli.main import cli
+        from apex.store import Store
+
+        monkeypatch.setenv("APEX_DB", str(tmp_path / "practice.db"))
+        monkeypatch.setenv("APEX_CONTENT_DIR", str(Path(__file__).resolve().parents[2] / "content"))
+        monkeypatch.setenv("APEX_LEARNER", "cli-test-learner")
+
         runner = CliRunner()
-        result = runner.invoke(cli, ["practice"])
+        result = runner.invoke(cli, ["practice", "--rounds", "2"])
         assert result.exit_code == 0
         assert "Adaptive Practice Session" in result.output
+        assert "Session complete" in result.output
+
+        store = Store(str(tmp_path / "practice.db"))
+        attempts = store.attempts("cli-test-learner")
+        assert len(attempts) == 2
+        mastery = store.get_mastery("cli-test-learner")
+        assert mastery, "expected mastery updates after practice"
 
 
 class TestProgressCommand:
     """Behaviour of the progress command."""
 
-    def test_progress_shows_table(self) -> None:
-        """progress prints mastery summary."""
-        from apex.cli.main import cli
+    def test_progress_shows_store_data(self, tmp_path, monkeypatch) -> None:
+        """progress reads the real store and prints a mastery summary."""
         from click.testing import CliRunner
+
+        from apex.cli.main import cli
+        from apex.store import Store
+
+        db = str(tmp_path / "progress.db")
+        monkeypatch.setenv("APEX_DB", db)
+        monkeypatch.setenv("APEX_LEARNER", "progress-learner")
+        Store(db).set_mastery("progress-learner", {"io": 0.5, "loops": 0.9})
 
         runner = CliRunner()
         result = runner.invoke(cli, ["progress"])
         assert result.exit_code == 0
         assert "Mastery Summary" in result.output
-        assert "Introduction to Python" in result.output
+        assert "io" in result.output
+        assert "loops" in result.output
+
+    def test_progress_empty_store(self, tmp_path, monkeypatch) -> None:
+        """progress on a fresh store shows the empty hint."""
+        from click.testing import CliRunner
+
+        from apex.cli.main import cli
+
+        monkeypatch.setenv("APEX_DB", str(tmp_path / "empty.db"))
+        monkeypatch.setenv("APEX_LEARNER", "nobody")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["progress"])
+        assert result.exit_code == 0
+        assert "no data yet" in result.output
 
 
 class TestDashboardCommand:
     """Behaviour of the dashboard command."""
 
-    def test_dashboard_opens_browser(self) -> None:
-        """dashboard calls webbrowser.open."""
+    def test_dashboard_serves_then_shuts_down(self) -> None:
+        """dashboard starts uvicorn and exits cleanly on shutdown."""
+        from unittest.mock import MagicMock
+
         from apex.cli.main import cli
         from click.testing import CliRunner
 
-        with patch("apex.cli.commands.webbrowser.open") as mock_open:
+        fake_uvicorn = MagicMock()
+        with patch("apex.cli.commands.uvicorn.run", fake_uvicorn):
             runner = CliRunner()
-            result = runner.invoke(cli, ["dashboard"])
+            result = runner.invoke(cli, ["dashboard", "--no-browser", "--port", "18080"])
             assert result.exit_code == 0
-            mock_open.assert_called_once_with("http://localhost:8080")
-            assert "Opening dashboard" in result.output
+            assert "Starting dashboard" in result.output
+            fake_uvicorn.assert_called_once()
+            _, kwargs = fake_uvicorn.call_args
+            assert kwargs.get("port") == 18080
 
 
 class TestCLIHelp:
@@ -217,11 +270,11 @@ class TestCLIHelp:
         assert "dashboard" in result.output
 
     def test_version(self) -> None:
-        """apex --version returns 0.1.0."""
+        """apex --version returns the package version."""
         from apex.cli.main import cli
         from click.testing import CliRunner
 
         runner = CliRunner()
         result = runner.invoke(cli, ["--version"])
         assert result.exit_code == 0
-        assert "0.1.0" in result.output
+        assert "0.2.0" in result.output

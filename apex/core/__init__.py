@@ -16,7 +16,6 @@ __all__ = [
     "BKTParams",
     "Chapter",
     "Course",
-    "Exercise",
     "LearnerState",
     "Lesson",
     "apply_attempt",

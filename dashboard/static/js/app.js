@@ -1,5 +1,4 @@
 const STATE = { charts: {}, learner: null, courses: null };
-const BASE = '';
 
 document.querySelectorAll('.sidebar nav a').forEach(a => {
     a.addEventListener('click', () => {
@@ -15,7 +14,8 @@ document.querySelectorAll('.sidebar nav a').forEach(a => {
 });
 
 async function api(path) {
-    const res = await fetch(BASE + path);
+    const res = await fetch(path);
+    if (!res.ok) throw new Error(`API ${path} failed: ${res.status}`);
     return res.json();
 }
 
@@ -32,24 +32,36 @@ async function loadTab(tab) {
             if (tab === 'mastery') renderMastery(progress);
             if (tab === 'spaced') renderSpaced(schedule);
         }
-        if (tab === 'courses' && STATE.courses) renderCourses(STATE.courses);
+        if (tab === 'courses') {
+            const courses = STATE.courses || await api('/api/courses');
+            STATE.courses = courses;
+            renderCourses(courses);
+        }
         if (tab === 'knowledge') renderKnowledgeGraph();
     } catch(e) { console.error('Load error:', e); }
 }
 
+function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+}
+
 function renderDashboard(progress, courses, schedule) {
-    const mc = progress.courses || {};
-    let totalTopics = 0, totalExercises = 0;
-    mc.forEach(c => { totalTopics += c.topics_covered || 0; totalExercises += c.topics_covered || 0; });
+    const mc = progress.courses || [];
+    let totalTopics = 0;
+    mc.forEach(c => { totalTopics += c.topics_covered || 0; });
     const allScores = mc.map(c => Math.round((c.average_mastery || 0) * 100));
     const avg = allScores.length ? Math.round(allScores.reduce((a,b)=>a+b,0)/allScores.length) : 0;
     document.getElementById('stat-courses').textContent = courses.courses.length;
     document.getElementById('stat-topics').textContent = totalTopics;
-    document.getElementById('stat-exercises').textContent = totalExercises;
+    document.getElementById('stat-exercises').textContent = totalTopics;
     document.getElementById('stat-score').textContent = avg + '%';
     document.getElementById('overall-mastery').textContent = avg;
+    const totalHours = Math.round((progress.total_time_on_task || 0) / 60 * 10) / 10;
+    document.getElementById('hours').textContent = totalHours;
     document.getElementById('streak').textContent = '7d';
-    document.getElementById('hours').textContent = '34.2';
     renderActivityChart(); renderOverviewChart(progress);
 }
 
@@ -87,52 +99,58 @@ function renderOverviewChart(progress) {
 function renderProgress(progress) {
     const ctx = document.getElementById('heatmap-chart');
     if (STATE.charts.heatmap) STATE.charts.heatmap.destroy();
-    // Fetch real heatmap data from the API
-    const heatmapPromise = api('/api/learner/alice/heatmap?course_id=' + (progress.courses[0]?.course_id || 'intro-python'))
+    const firstCourse = (progress.courses && progress.courses[0] && progress.courses[0].course_id) || 'intro-python';
+    api('/api/learner/alice/heatmap?course_id=' + firstCourse)
         .then(data => data.data || [])
-        .catch(() => []);
-    Promise.all([heatmapPromise]).then(([heatmapData]) => {
-        // Heatmap rows are {date, topics: {topic: minutes}} — sum per day
-        const vals = heatmapData.length > 0
-            ? heatmapData.map(r => Object.values(r.topics || {}).reduce((a,b)=>a+b, 0))
-            : Array.from({length:30}, (_,i) => i+1);
-        STATE.charts.heatmap = new Chart(ctx, {
-            type: 'bar', data: { labels: vals.map((_,i) => 'D'+(i+1)), datasets: [{ label: 'Minutes', data: vals,
-                backgroundColor: vals.map(v => v>60?'rgba(99,102,241,0.8)':v>30?'rgba(139,92,246,0.6)':'rgba(42,53,72,0.5)'), borderRadius: 3 }]},
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
-                scales: { y: { beginAtZero: true, grid: { color: 'rgba(42,53,72,0.5)' }, ticks: { color: '#94a3b8' } },
-                x: { grid: { display: false }, ticks: { color: '#64748b', maxTicksLimit: 10 } } } }
-        });
-    });
+        .then(heatmapData => {
+            // Heatmap rows are {date, topics: {topic: minutes}} — sum per day
+            const vals = heatmapData.map(r => Object.values(r.topics || {}).reduce((a,b)=>a+b, 0));
+            const labels = heatmapData.map(r => (r.date || '').slice(5));
+            STATE.charts.heatmap = new Chart(ctx, {
+                type: 'bar', data: { labels: labels, datasets: [{ label: 'Minutes', data: vals,
+                    backgroundColor: vals.map(v => v>60?'rgba(99,102,241,0.8)':v>30?'rgba(139,92,246,0.6)':'rgba(42,53,72,0.5)'), borderRadius: 3 }]},
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+                    scales: { y: { beginAtZero: true, grid: { color: 'rgba(42,53,72,0.5)' }, ticks: { color: '#94a3b8' } },
+                    x: { grid: { display: false }, ticks: { color: '#64748b', maxTicksLimit: 10 } } } }
+            });
+        })
+        .catch(e => console.error('Heatmap load failed:', e));
 }
 
 function renderMastery(progress) {
     const container = document.getElementById('mastery-bars');
+    const firstCourse = (progress.courses && progress.courses[0] && progress.courses[0].course_id) || 'intro-python';
     if (container) {
-        container.innerHTML = '';
-        // Use real mastery data from progress.courses instead of random
-        const courseData = (progress.courses || []).find(c => c.course_id === 'intro-python') || (progress.courses || [])[0];
-        const masteryMap = {};
-        if (courseData && courseData.topics_covered) {
-            const topics = [['Variables','#6366f1'],['Loops','#8b5cf6'],['Functions','#22c55e'],['Data Structures','#3b82f6'],['Pandas','#f59e0b'],['NumPy','#ef4444']];
-            topics.forEach(([name, color]) => {
-                const score = Math.min(100, Math.max(5, Math.round(courseData.average_mastery * 100)));
-                const div = document.createElement('div'); div.className = 'mastery-item';
-                div.innerHTML = '<span class="mastery-label">'+name+'</span><div class="mastery-bar"><div class="mastery-fill" style="width:'+score+'%;background:'+color+'"></div></div><span class="mastery-value" style="color:'+color+'">'+score+'%</span>';
-                container.appendChild(div);
-            });
-        }
+        container.textContent = '';
+        api('/api/learner/alice/mastery?course_id=' + firstCourse)
+            .then(data => {
+                const colors = ['#6366f1','#8b5cf6','#22c55e','#3b82f6','#f59e0b','#ef4444','#06b6d4','#ec4899'];
+                (data.topics || []).forEach((t, i) => {
+                    const color = colors[i % colors.length];
+                    const row = el('div', 'mastery-item');
+                    const label = el('span', 'mastery-label', t.topic);
+                    const barWrap = el('div', 'mastery-bar');
+                    const fill = el('div', 'mastery-fill');
+                    fill.style.width = Math.round(t.score) + '%';
+                    fill.style.background = color;
+                    barWrap.appendChild(fill);
+                    const value = el('span', 'mastery-value', Math.round(t.score) + '%');
+                    value.style.color = color;
+                    row.append(label, barWrap, value);
+                    container.appendChild(row);
+                });
+            })
+            .catch(e => console.error('Mastery load failed:', e));
     }
     const ctx = document.getElementById('mastery-chart');
     if (STATE.charts.mastery) STATE.charts.mastery.destroy();
     const mc = progress.courses || [];
-    const scores = mc.map(c => c.average_mastery || 0);
-    const labels = mc.map(c => c.course_title || c.course_id || 'Unknown');
+    const scores = mc.map(c => Math.round((c.average_mastery || 0) * 100));
+    const labels = mc.map(c => (c.course_title || c.course_id || 'Course').split(' ').slice(0, 2).join(' '));
     STATE.charts.mastery = new Chart(ctx, {
         type: 'line',
-        data: { labels: ['W1','W2','W3','W4','W5','W6'], datasets: [
-            { label: 'Python', data: [20,35,50,65,72,80], borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.1)', fill: true, tension: 0.4 },
-            { label: 'Data Science', data: [10,25,40,55,60,70], borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.1)', fill: true, tension: 0.4 }
+        data: { labels: labels.length ? labels : ['—'], datasets: [
+            { label: 'Avg mastery %', data: scores.length ? scores : [0], borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.1)', fill: true, tension: 0.4 }
         ]},
         options: { responsive: true, maintainAspectRatio: false,
             scales: { y: { beginAtZero: true, max: 100, grid: { color: 'rgba(42,53,72,0.5)' }, ticks: { color: '#94a3b8' } },
@@ -145,66 +163,78 @@ function renderMastery(progress) {
 function renderSpaced(schedule) {
     const container = document.getElementById('spaced-list');
     if (!container) return;
-    container.innerHTML = '';
-    const items = schedule.review_items || [];
-    if (!items.length) { container.innerHTML = '<div style="color:var(--text-muted);padding:20px;text-align:center;">No reviews due today. Keep learning!</div>'; return; }
+    container.textContent = '';
+    const items = schedule.items || [];
+    if (!items.length) {
+        container.appendChild(el('div', null, 'No reviews scheduled. Keep learning!'));
+        return;
+    }
     items.forEach(item => {
-        const div = document.createElement('div'); div.className = 'schedule-item';
-        div.innerHTML = '<span class="topic-name">'+(item.topic||'Unknown')+'</span><span class="interval">'+(item.interval||'?')+'d</span><span class="due-date">Due '+(item.due_date||'soon')+'</span>';
-        container.appendChild(div);
+        const row = el('div', 'schedule-item');
+        row.appendChild(el('span', 'topic-name', item.topic || 'Unknown'));
+        row.appendChild(el('span', 'interval', (item.interval_days ?? '?') + 'd'));
+        row.appendChild(el('span', 'due-date', 'Due ' + (item.next_review || 'soon')));
+        container.appendChild(row);
     });
 }
 
 function renderCourses(courses) {
     const container = document.getElementById('courses-list');
     if (!container) return;
-    container.innerHTML = '';
-    courses.courses.forEach(c => {
-        const div = document.createElement('div'); div.className = 'course-item';
-        div.innerHTML = '<h4>'+c.title+'</h4><p class="meta">'+(c.description||'')+' · '+(c.duration_weeks||'?')+' weeks · '+(c.module_count||'?')+' modules</p><div class="progress-bar"><div class="progress-fill" style="width:'+(c.completion_percent||0)+'%"></div></div>';
-        container.appendChild(div);
+    container.textContent = '';
+    (courses.courses || []).forEach(c => {
+        const card = el('div', 'course-item');
+        const title = el('h4', null, c.title || c.id);
+        const meta = el('p', 'meta', `${c.description || ''} · ${c.duration_weeks || '?'} weeks · ${c.module_count || '?'} modules`);
+        const barWrap = el('div', 'progress-bar');
+        const fill = el('div', 'progress-fill');
+        fill.style.width = '0%';
+        barWrap.appendChild(fill);
+        card.append(title, meta, barWrap);
+        container.appendChild(card);
+        // Fill in real completion from the per-course endpoint
+        api('/api/course/' + c.id + '/completion')
+            .then(data => { fill.style.width = (data.completion_percent || 0) + '%'; })
+            .catch(() => { fill.style.width = '0%'; });
+    });
+}
+
+function drawGraph(canvas, nodes, edges) {
+    const ctx = canvas.getContext('2d');
+    canvas.width = canvas.parentElement.clientWidth;
+    canvas.height = 400;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!nodes.length) return;
+    const cx = canvas.width/2, cy = canvas.height/2;
+    const r = Math.min(cx,cy)*0.6;
+    const positions = new Map(nodes.map((n, i) => [n, { x: cx+Math.cos(i/nodes.length*Math.PI*2)*r, y: cy+Math.sin(i/nodes.length*Math.PI*2)*r }]));
+    ctx.strokeStyle = 'rgba(99,102,241,0.3)'; ctx.lineWidth = 2;
+    edges.forEach(([a,b]) => {
+        const pa = positions.get(a), pb = positions.get(b);
+        if (!pa || !pb) return;
+        ctx.beginPath(); ctx.moveTo(pa.x,pa.y); ctx.lineTo(pb.x,pb.y); ctx.stroke();
+    });
+    const colors = ['#6366f1','#8b5cf6','#22c55e','#3b82f6','#f59e0b','#ef4444','#06b6d4','#ec4899'];
+    nodes.forEach((n, i) => {
+        const p = positions.get(n);
+        ctx.beginPath(); ctx.arc(p.x,p.y,20,0,Math.PI*2); ctx.fillStyle=colors[i % colors.length]; ctx.fill();
+        ctx.fillStyle='#fff'; ctx.font='11px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+        ctx.fillText(n,p.x,p.y);
     });
 }
 
 function renderKnowledgeGraph() {
     const canvas = document.getElementById('knowledge-graph-canvas');
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    canvas.width = canvas.parentElement.clientWidth; canvas.height = 400;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    // Fetch real knowledge graph data from the API
     api('/api/learner/alice/knowledge-graph?course_id=intro-python')
         .then(data => {
-            const nodes = (data.nodes || []).map(n => typeof n === 'string' ? n : (n.name || 'Node'));
-            const edges = (data.edges || []).map(e => [e.source || 0, e.target || 0]);
-            if (nodes.length === 0) return;
-            const cx = canvas.width/2, cy = canvas.height/2;
-            const r = Math.min(cx,cy)*0.6;
-            const positions = nodes.map((_,i) => ({ x: cx+Math.cos(i/nodes.length*Math.PI*2)*r, y: cy+Math.sin(i/nodes.length*Math.PI*2)*r }));
-            ctx.strokeStyle = 'rgba(99,102,241,0.3)'; ctx.lineWidth = 2;
-            edges.forEach(([a,b]) => { ctx.beginPath(); ctx.moveTo(positions[a].x,positions[a].y); ctx.lineTo(positions[b].x,positions[b].y); ctx.stroke(); });
-            const colors = ['#6366f1','#8b5cf6','#22c55e','#3b82f6','#f59e0b','#ef4444','#06b6d4','#ec4899'];
-            positions.forEach((p,i) => {
-                ctx.beginPath(); ctx.arc(p.x,p.y,20,0,Math.PI*2); ctx.fillStyle=colors[i % colors.length]; ctx.fill();
-                ctx.fillStyle='#fff'; ctx.font='11px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
-                ctx.fillText(nodes[i],p.x,p.y);
-            });
+            const nodes = (data.nodes || []).map(n => n.name || n.id);
+            const edges = (data.edges || []).map(e => [e.source, e.target]);
+            drawGraph(canvas, nodes, edges);
         })
-        .catch(() => {
-            // Fallback: show hardcoded graph if API fails
-            const nodes = ['Variables','Loops','Functions','Data Structures','Pandas','NumPy','Statistics','Visualization'];
-            const edges = [[0,1],[0,2],[1,2],[2,3],[3,4],[4,5],[4,6],[5,7],[6,7]];
-            const cx = canvas.width/2, cy = canvas.height/2;
-            const r = Math.min(cx,cy)*0.6;
-            const positions = nodes.map((_,i) => ({ x: cx+Math.cos(i/nodes.length*Math.PI*2)*r, y: cy+Math.sin(i/nodes.length*Math.PI*2)*r }));
-            ctx.strokeStyle = 'rgba(99,102,241,0.3)'; ctx.lineWidth = 2;
-            edges.forEach(([a,b]) => { ctx.beginPath(); ctx.moveTo(positions[a].x,positions[a].y); ctx.lineTo(positions[b].x,positions[b].y); ctx.stroke(); });
-            const colors = ['#6366f1','#8b5cf6','#22c55e','#3b82f6','#f59e0b','#ef4444','#06b6d4','#ec4899'];
-            positions.forEach((p,i) => {
-                ctx.beginPath(); ctx.arc(p.x,p.y,20,0,Math.PI*2); ctx.fillStyle=colors[i]; ctx.fill();
-                ctx.fillStyle='#fff'; ctx.font='11px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
-                ctx.fillText(nodes[i],p.x,p.y);
-            });
+        .catch(e => {
+            console.error('Knowledge graph load failed:', e);
+            drawGraph(canvas, ['Variables','Loops','Functions','Lists','Dicts'], [['variables','loops'],['loops','functions'],['functions','lists'],['lists','dicts']]);
         });
 }
 

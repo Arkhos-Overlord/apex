@@ -67,6 +67,7 @@ async def test_env_is_scrubbed(runner: LocalPythonRunner) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(platform.system() == "Windows", reason="Windows tempfile limitation")
+@pytest.mark.skipif(platform.system() != "Windows" and __import__("os").geteuid() == 0, reason="the kernel does not enforce RLIMIT_NPROC for uid 0")
 async def test_cannot_fork_processes(runner: LocalPythonRunner) -> None:
     """Runner prevents process spawning via RLIMIT_NPROC."""
     result = await runner.run("import subprocess; subprocess.run(['echo', 'hi'])")

@@ -8,23 +8,29 @@ via the ``persistence`` parameter.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from typing import Any
 
-PECISION = 6  # decimal places preserved for mastery scores
+PRECISION = 6  # decimal places preserved for mastery scores
 
 
-def _adapt_dict(value: dict[str, float]) -> list[tuple[str, float]]:
-    """Adapt a mastery dict for storage as a BLOB via sqlite3."""
-    return [(k, round(v, PECISION)) for k, v in value.items()]
+def _adapt_dict(value: dict[str, float]) -> str:
+    """Serialize a mastery dict for storage as JSON TEXT."""
+    return json.dumps({k: round(float(v), PRECISION) for k, v in value.items()})
 
 
-def _convert_dict(blob: bytes | None) -> dict[str, float]:
-    """Convert a stored BLOB back into a mastery dict."""
-    if blob is None:
+def _convert_dict(raw: str | bytes | None) -> dict[str, float]:
+    """Deserialize a stored JSON payload back into a mastery dict."""
+    if raw is None:
         return {}
-    pairs: list[tuple[str, float]] = __import__("pickle").loads(blob)
-    return {k: float(v) for k, v in pairs}
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", errors="replace")
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return {str(k): float(v) for k, v in data.items()}
 
 
 class StoreError(Exception):
@@ -69,7 +75,7 @@ class Store:
                 """
                 CREATE TABLE IF NOT EXISTS mastery (
                     learner   TEXT PRIMARY KEY,
-                    p         BLOB NOT NULL
+                    p         TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS attempts (
                     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,6 +85,13 @@ class Store:
                     score     REAL    NOT NULL,
                     duration  INTEGER NOT NULL,
                     ts        TEXT    NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS submissions (
+                    learner   TEXT    NOT NULL,
+                    exercise  TEXT    NOT NULL,
+                    code      TEXT    NOT NULL,
+                    ts        TEXT    NOT NULL,
+                    PRIMARY KEY (learner, exercise)
                 );
                 CREATE INDEX IF NOT EXISTS idx_attempts_learner
                     ON attempts(learner);
@@ -114,7 +127,6 @@ class Store:
         with self._connect() as conn:
             row = conn.execute("SELECT p FROM mastery WHERE learner = ?", (learner,)).fetchone()
         return _convert_dict(row[0] if row else None)
-
     def set_mastery(self, learner: str, mastery_dict: dict[str, float]) -> None:
         """Persist *mastery_dict* for *learner*, replacing any existing row.
 
@@ -128,7 +140,7 @@ class Store:
         """
         if self._readonly:
             raise StoreError("Cannot write in read-only mode")
-        payload = __import__("pickle").dumps(_adapt_dict(mastery_dict))
+        payload = _adapt_dict(mastery_dict)
         with self._connect() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO mastery (learner, p) VALUES (?, ?)",
@@ -255,6 +267,50 @@ class Store:
             attempt_rows = conn.execute("SELECT DISTINCT learner FROM attempts").fetchall()
         combined = {r[0] for r in mastery_rows} | {r[0] for r in attempt_rows}
         return sorted(combined)
+
+    # ── submissions ───────────────────────────────────────────────────
+
+    def save_submission(self, learner: str, exercise: str, code: str) -> None:
+        """Persist the learner's latest source code for *exercise*.
+
+        Args:
+            learner: Unique learner identifier.
+            exercise: Exercise identifier.
+            code: The learner's submitted source text.
+
+        Raises:
+            StoreError: When the store is opened in read-only mode.
+        """
+        if self._readonly:
+            raise StoreError("Cannot write in read-only mode")
+        import time
+
+        ts = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO submissions (learner, exercise, code, ts)
+                VALUES (?, ?, ?, ?)
+                """,
+                (learner, exercise, code, ts),
+            )
+
+    def get_submission(self, learner: str, exercise: str) -> str | None:
+        """Return the learner's latest submission for *exercise*, or ``None``.
+
+        Args:
+            learner: Unique learner identifier.
+            exercise: Exercise identifier.
+
+        Returns:
+            The stored source text, or ``None`` when never submitted.
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT code FROM submissions WHERE learner = ? AND exercise = ?",
+                (learner, exercise),
+            ).fetchone()
+        return row[0] if row else None
 
     # ── utility ─────────────────────────────────────────────────────────
 
