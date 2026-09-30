@@ -37,6 +37,7 @@ const COLORS = {
     unlocked: 0x818cf8,
     locked: 0x3d4459,
     concept: 0xf59e0b,
+    intent: 0x22d3ee, // declared intent (wantToLearn/learning) — distinct from earned green
     edge: 0x4c5a7a,
 };
 
@@ -72,6 +73,7 @@ function el(tag, className, text) {
 const TITLES = {
     web: "Knowledge Web",
     dashboard: "Dashboard",
+    intents: "My Path",
     courses: "Courses",
     practice: "Practice",
     mastery: "Mastery",
@@ -94,6 +96,7 @@ function loadTab(tab) {
     try {
         if (tab === "web") renderWeb();
         if (tab === "dashboard") renderDashboard();
+        if (tab === "intents") renderIntents();
         if (tab === "courses") renderCourses();
         if (tab === "practice") renderPractice();
         if (tab === "mastery") renderMastery();
@@ -134,14 +137,34 @@ async function renderWeb() {
         return;
     }
     STATE.graph = payload;
-    initThree(canvas);
-    buildGraphScene(payload);
-    animateWeb();
+    try {
+        initThree(canvas);
+        buildGraphScene(payload);
+        animateWeb();
+    } catch (e) {
+        // Most commonly: no WebGL context at all (VMs, locked-down browsers).
+        // three.js throws out of the WebGLRenderer constructor, and without
+        // this catch the module dies and the page shows an eternal blank
+        // canvas instead of the explanation the user can act on.
+        console.error("knowledge web failed to initialise:", e);
+        showWebError(
+            String(e && e.message ? e.message : e) +
+            " — the canvas could not start. This browser or machine has no working WebGL."
+        );
+        return;
+    }
     // Exposed for apex/tests/check_ui.py to assert on the live scene.
+    // nodePoint(i) reads live sim coordinates at call time — a boot-time
+    // snapshot would go stale as the force simulation keeps moving nodes.
     window.__apexWeb = {
         nodeCount: STATE.simNodes.length,
         edgeCount: STATE.simLinks.length,
         threeRevision: THREE.REVISION,
+        nodePoint(i) {
+            const n = STATE.simNodes[i];
+            return n ? new THREE.Vector3(n.x, n.y, n.z) : null;
+        },
+        camera: STATE.camera,
     };
 }
 
@@ -276,6 +299,10 @@ function makeLabel(text, color) {
 
 function nodeColor(n) {
     if (n.mastered) return COLORS.mastered;
+    // Declared intent beats generic state colouring: the learner said
+    // something about this node, so the web should show it even while the
+    // mastery is still at the seeded prior.
+    if (n.intent === "learning" || n.intent === "wantToLearn") return COLORS.intent;
     if (!n.has_exercises) return COLORS.concept;
     if (n.unlocked) return COLORS.unlocked;
     return COLORS.locked;
@@ -360,6 +387,12 @@ function onPointerMove(event) {
 }
 
 function onCanvasClick(event) {
+    // Derive NDC coords from the event itself: a pointermove does not always
+    // precede a click (programmatic clicks, some touch taps), and relying on
+    // the stale hover position makes the raycast miss.
+    const rect = event.target.getBoundingClientRect();
+    STATE.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    STATE.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
     STATE.raycaster.setFromCamera(STATE.pointer, STATE.camera);
     const meshes = STATE.nodeMeshes.filter((m) => m.isMesh);
     const hits = STATE.raycaster.intersectObjects(meshes, false);
@@ -433,6 +466,129 @@ function showNodeDetail(n) {
         group.appendChild(row);
         panel.appendChild(group);
     }
+
+    panel.appendChild(intentActionsFor(n));
+}
+
+/* Declare-intent controls in the web detail panel. Mirrors the board's
+ * transitions; a successful POST recolours the node in place. */
+function intentActionsFor(n) {
+    const wrap = el("div", "rel-group");
+    wrap.appendChild(el("div", "rel-label", "my path"));
+    const current = n.intent;
+    const row = el("div", "intent-actions");
+    const options = [
+        ["wantToLearn", "☆ Want", current === "wantToLearn"],
+        ["learning", "→ Learning", current === "learning"],
+        ["learned", "✓ Learned", current === "learned"],
+    ];
+    for (const [state, label, active] of options) {
+        const btn = el("button", "btn btn-sm" + (active ? " btn-primary" : ""), label + (active ? " ✓" : ""));
+        if (active) { btn.disabled = true; }
+        btn.onclick = async () => {
+            btn.disabled = true;
+            try {
+                await api("/api/intents", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ concept_id: n.id, state }),
+                });
+                n.intent = state;
+                const sim = STATE.byId.get(n.id);
+                if (sim) {
+                    const mesh = STATE.nodeMeshes.find((m) => m.userData.node.id === n.id);
+                    if (mesh) {
+                        const color = nodeColor(n);
+                        mesh.material.color.setHex(color);
+                        mesh.material.emissive.setHex(color);
+                    }
+                }
+                refreshStats();
+            } catch (e) {
+                console.error("intent update failed:", e);
+            } finally {
+                btn.disabled = false;
+            }
+        };
+        row.appendChild(btn);
+    }
+    wrap.appendChild(row);
+    return wrap;
+}
+
+/* ════════════════════════════════════════════════════════ */
+/* Intent board (My Path)                                   */
+/* ════════════════════════════════════════════════════════ */
+
+async function renderIntents() {
+    const board = await api("/api/intents");
+    for (const bucket of ["wantToLearn", "learning", "learned"]) {
+        const holder = document.querySelector(`#intent-${bucket === "wantToLearn" ? "want" : bucket} .intent-list`);
+        if (!holder) continue;
+        holder.textContent = "";
+        const items = board[bucket] || [];
+        if (!items.length) {
+            holder.appendChild(el("div", "hint", bucket === "learned" ? "Nothing proven yet." : "Nothing declared yet."));
+            continue;
+        }
+        for (const item of items) holder.appendChild(intentCard(item, bucket));
+    }
+}
+
+function intentCard(item, bucket) {
+    const card = el("div", "intent-card");
+    const head = el("div", "intent-head");
+    head.appendChild(el("span", "intent-name", item.name));
+    head.appendChild(el("span", "intent-id", item.id));
+    card.appendChild(head);
+    if (item.kind === "concept") card.classList.add("concept");
+
+    const pct = Math.round((item.mastery || 0) * 100);
+    const bar = el("div", "mastery-bar");
+    const fill = el("i");
+    fill.style.width = pct + "%";
+    if (item.earned) fill.classList.add("earned");
+    bar.appendChild(fill);
+    card.appendChild(bar);
+
+    const meta = el("div", "intent-meta");
+    const bits = [`${pct}% mastery`];
+    if (bucket === "learned" && !item.earned) bits.push("claimed, not yet proven");
+    if (bucket === "learning" && item.earned) bits.push("proven ✓");
+    bits.push(item.has_exercises ? "has exercises" : "read-only node");
+    meta.textContent = bits.join(" · ");
+    card.appendChild(meta);
+
+    const actions = el("div", "intent-actions");
+    const transitions = {
+        wantToLearn: [
+            ["Start learning", "learning", "btn-primary"],
+            ["Archive", "archived", ""],
+        ],
+        learning: [["Mark learned", "learned", ""]],
+        learned: [["Relearn", "learning", ""]],
+    };
+    for (const [label, state, cls] of transitions[bucket] || []) {
+        const btn = el("button", `btn btn-sm ${cls}`.trim(), label);
+        btn.onclick = async () => {
+            btn.disabled = true;
+            try {
+                await api("/api/intents", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ concept_id: item.id, state }),
+                });
+                await renderIntents();
+                await refreshStats();
+            } catch (e) {
+                btn.disabled = false;
+                console.error("intent update failed:", e);
+            }
+        };
+        actions.appendChild(btn);
+    }
+    card.appendChild(actions);
+    return card;
 }
 
 /* ════════════════════════════════════════════════════════ */
@@ -597,12 +753,68 @@ function renderExercise() {
     }
     header.appendChild(el("div", "ex-title", ex.title));
     header.appendChild(
-        el("div", "ex-meta", `${ex.id} · difficulty ${ex.difficulty}/5 · skills: ${ex.skills.join(", ")}`)
+        el("div", "ex-meta", `${ex.id} · ${kindLabel(ex)} · difficulty ${ex.difficulty}/5 · skills: ${ex.skills.join(", ")}`)
     );
     prompt.textContent = ex.prompt;
-    starter.textContent = ex.starter || "(no starter code)";
-    editor.value = ex.starter || "";
+
+    // Answer surface depends on the kind: code gets an editor, mcq gets
+    // option buttons, recall/numeric get a one-line input.
+    if (ex.kind === "code") {
+        starter.textContent = ex.starter || "(no starter code)";
+        editor.value = ex.starter || "";
+        editor.style.display = "";
+        renderStaticAnswer(null);
+    } else {
+        starter.textContent = "";
+        editor.value = "";
+        editor.style.display = "none";
+        renderStaticAnswer(ex);
+    }
     renderHintButton();
+}
+
+function kindLabel(ex) {
+    if (ex.kind === "code") return `code · ${ex.language || "python"}`;
+    if (ex.kind === "mcq") return "multiple choice";
+    if (ex.kind === "recall") return "short answer";
+    return "numeric";
+}
+
+/* Static-answer surface: options for mcq, an input otherwise. The chosen
+ * value lands in STATE.answer, which submitSolution sends as `source`. */
+function renderStaticAnswer(ex) {
+    STATE.answer = "";
+    let holder = document.getElementById("static-answer");
+    if (!holder) {
+        holder = el("div");
+        holder.id = "static-answer";
+        document.getElementById("code-editor").before(holder);
+    }
+    holder.textContent = "";
+    if (!ex) return;
+
+    if (ex.kind === "mcq") {
+        (ex.options || []).forEach((opt, i) => {
+            const btn = el("button", "btn btn-secondary option-btn", `${i + 1}. ${opt}`);
+            btn.style.cssText = "display:block;width:100%;text-align:left;margin-bottom:8px;";
+            btn.onclick = () => {
+                STATE.answer = opt;
+                holder.querySelectorAll(".option-btn").forEach((b) => (b.style.borderColor = ""));
+                btn.style.borderColor = "var(--accent)";
+            };
+            holder.appendChild(btn);
+        });
+    } else {
+        const input = el("input");
+        input.type = "text";
+        input.id = "static-answer-input";
+        input.placeholder = ex.kind === "numeric" ? "Enter a number" : "Type your answer";
+        input.style.cssText = "width:100%;background:#0d1120;border:1px solid var(--border-bright);border-radius:8px;color:var(--text-primary);font-size:14px;padding:10px 14px;outline:none;margin-bottom:4px;";
+        input.oninput = () => { STATE.answer = input.value; };
+        input.onkeydown = (e) => { if (e.key === "Enter") submitSolution(); };
+        holder.appendChild(input);
+        input.focus();
+    }
 }
 
 function renderHintButton() {
@@ -629,10 +841,19 @@ document.getElementById("btn-skip")?.addEventListener("click", () => {
 async function submitSolution() {
     const ex = STATE.currentExercise;
     if (!ex) return;
-    const source = document.getElementById("code-editor").value;
-    if (!source.trim()) {
-        setStatus("Write some code first.", "err");
-        return;
+    let source;
+    if (ex.kind === "code") {
+        source = document.getElementById("code-editor").value;
+        if (!source.trim()) {
+            setStatus("Write some code first.", "err");
+            return;
+        }
+    } else {
+        source = (STATE.answer || "").trim();
+        if (!source) {
+            setStatus("Choose or type an answer first.", "err");
+            return;
+        }
     }
     const btn = document.getElementById("btn-submit");
     btn.disabled = true;

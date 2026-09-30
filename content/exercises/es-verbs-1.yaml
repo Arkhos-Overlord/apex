@@ -1,0 +1,13 @@
+id: es-verbs-1
+title: To Speak
+kind: recall
+skills: [spanish-verbs]
+difficulty: 2
+prompt: |
+  What is the Spanish infinitive "to speak"? (One word, no pronouns.)
+answer: hablar
+accept: []
+hints:
+  - It ends in -ar, the most common infinitive ending.
+  - An English borrowing from the same root is "habla-do", as in "he who has spoken".
+explanation: hablar = to speak. First-person present is yo hablo.

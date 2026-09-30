@@ -16,6 +16,7 @@ from apex.cli.commands import (
     dashboard,
     doctor,
     graph,
+    learn,
     practice,
     progress,
     relations,
@@ -36,6 +37,7 @@ def cli() -> None:
 
 
 cli.add_command(teach)
+cli.add_command(learn)
 cli.add_command(courses)
 cli.add_command(course)
 cli.add_command(practice)

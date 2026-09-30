@@ -25,7 +25,7 @@ from apex.cli.dashboard import DEFAULT_PORT, serve_in_background
 from apex.core.bkt import MASTERED
 from apex.graph import Relation
 from apex.session import LearningSession
-from apex.store import Store, StoreError
+from apex.store import LEARNING_STATES, Store, StoreError
 from apex.teachers import get_teacher, instruct, list_teachers
 
 console = Console()
@@ -341,6 +341,93 @@ def _match_concept(session: LearningSession, topic: str) -> str | None:
     return None
 
 
+# ── learn: declare intent ────────────────────────────────────────────────
+
+
+@click.group(name="learn")
+def learn() -> None:
+    """Tell the engine what you want to learn.
+
+    Declaring intent is not decoration: 'learning' a topic raises its BKT
+    prior, puts its exercises first in every practice session, and lets a
+    proven mastery promote it to 'learned' automatically.
+    """
+
+
+@learn.command(name="want")
+@click.argument("topic", required=True)
+def learn_want(topic: str) -> None:
+    """Add TOPIC to your want-to-learn list."""
+    _set_intent(topic, "wantToLearn")
+
+
+@learn.command(name="learning")
+@click.argument("topic", required=True)
+def learn_learning(topic: str) -> None:
+    """Commit to learning TOPIC: it jumps the practice queue."""
+    _set_intent(topic, "learning")
+
+
+@learn.command(name="learned")
+@click.argument("topic", required=True)
+def learn_learned(topic: str) -> None:
+    """Mark TOPIC as learned (a claim; practice still proves it)."""
+    _set_intent(topic, "learned")
+
+
+@learn.command(name="archive")
+@click.argument("topic", required=True)
+def learn_archive(topic: str) -> None:
+    """Park TOPIC: hidden from proposals and practice selection."""
+    _set_intent(topic, "archived")
+
+
+def _set_intent(topic: str, state: str) -> None:
+    """Shared body of the learn subcommands."""
+    session = _session(load_config())
+    concept_id = _match_concept(session, topic)
+    if concept_id is None:
+        known = ", ".join(sorted(session.library.skills)[:12])
+        raise click.ClickException(
+            f"No concept matches '{topic}'. Try 'apex graph' — some known ids: {known}…"
+        )
+    result = session.set_learning_state(concept_id, state)
+    node = session.library.graph.concepts[concept_id]
+    label = {
+        "wantToLearn": "want to learn",
+        "learning": "now learning",
+        "learned": "marked learned",
+        "archived": "archived",
+    }[state]
+    console.print(
+        f"[green]✓[/green] {node.name} — {label}. "
+        f"mastery prior [bold]{round(result['mastery'] * 100)}%[/bold]"
+    )
+    if state == "learning":
+        console.print("[dim]Its exercises now come first in 'apex practice'.[/dim]")
+
+
+@learn.command(name="board")
+def learn_board() -> None:
+    """Show your want-to-learn / learning / learned board."""
+    session = _session(load_config())
+    board = session.intent_board()
+    icons = {"wantToLearn": "☆", "learning": "→", "learned": "✓"}
+    styles = {"wantToLearn": "yellow", "learning": "cyan", "learned": "green"}
+    for bucket in ("wantToLearn", "learning", "learned"):
+        items = board[bucket]
+        console.print(f"\n[bold {styles[bucket]}]{icons[bucket]} {bucket}[/bold {styles[bucket]}]")
+        if not items:
+            console.print("  [dim](nothing yet — see 'apex learn --help')[/dim]")
+        for item in items:
+            suffix = "" if item["earned"] or bucket != "learned" else " [dim](claimed, not yet proven)[/dim]"
+            console.print(
+                f"  {item['name']} [dim]({item['id']})[/dim] — "
+                f"{round(item['mastery'] * 100)}%{suffix}"
+            )
+    console.print()
+
+
 # ── practice ─────────────────────────────────────────────────────────────
 
 
@@ -390,23 +477,37 @@ def practice(
                 border_style="cyan",
             )
         )
-        if exercise.starter:
-            console.print("[dim]Starter:[/dim]")
-            console.print(Syntax(exercise.starter.rstrip(), "python", theme="monokai", padding=(0, 2)))
+        kind = exercise.kind
+        if kind == "mcq":
+            console.print("[dim]Options:[/dim]")
+            for i, option in enumerate(exercise.options, 1):
+                console.print(f"  [cyan]{i}.[/cyan] {option}")
+            console.print("[dim]Answer with the option text or its number.[/dim]")
+        elif kind in ("recall", "numeric"):
+            console.print("[dim]Type your answer on one line.[/dim]")
 
-        visible = [t for t in exercise.tests if not t.hidden]
-        if visible:
-            console.print("[dim]Visible test cases:[/dim]")
-            for test in visible:
-                console.print(f"  stdin [cyan]{test.input.strip()!r}[/cyan] -> stdout {test.expected.strip()!r}")
-        hidden_count = sum(1 for t in exercise.tests if t.hidden)
-        if hidden_count:
-            console.print(f"  [dim]+ {hidden_count} hidden test case(s); you need all of them[/dim]")
+        if kind == "code" and exercise.starter:
+            console.print("[dim]Starter:[/dim]")
+            console.print(Syntax(exercise.starter.rstrip(), exercise.language, theme="monokai", padding=(0, 2)))
+
+        if kind == "code":
+            visible = [t for t in exercise.tests if not t.hidden]
+            if visible:
+                console.print("[dim]Visible test cases:[/dim]")
+                for test in visible:
+                    console.print(f"  stdin [cyan]{test.input.strip()!r}[/cyan] -> stdout {test.expected.strip()!r}")
+            hidden_count = sum(1 for t in exercise.tests if t.hidden)
+            if hidden_count:
+                console.print(f"  [dim]+ {hidden_count} hidden test case(s); you need all of them[/dim]")
 
         if solution:
-            source = exercise.solution
+            source = exercise.answer if exercise.kind != "code" else exercise.solution
         elif source_file:
             source = Path(source_file).read_text(encoding="utf-8")
+        elif exercise.kind != "code":
+            # Static kinds answer on one line; stdin.read() would swallow
+            # the newline and wait for EOF forever.
+            source = click.prompt("Your answer")
         else:
             console.print("\n[dim]Paste your code, then Ctrl-Z / Ctrl-D to end input:[/dim]")
             try:

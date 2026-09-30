@@ -1,0 +1,17 @@
+id: es-numbers-1
+title: Counting to Five
+kind: mcq
+skills: [spanish-numbers]
+difficulty: 1
+prompt: |
+  Which Spanish word means **five**?
+options:
+  - cuatro
+  - cinco
+  - tres
+  - seis
+answer: cinco
+hints:
+  - cinco shares its first letter with cinema -- think of five screens.
+  - cuatro is four; seis is six.
+explanation: cinco = 5 (cinco de mayo, the fifth of May).

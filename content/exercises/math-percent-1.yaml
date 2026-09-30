@@ -1,0 +1,14 @@
+id: math-percent-1
+title: Percent Change
+kind: numeric
+skills: [percentages]
+difficulty: 2
+prompt: |
+  A price rises from 80 to 100. What is the *percentage* increase?
+  (Not the absolute increase of 20 -- the relative one, in percent.)
+answer: "25"
+tolerance: 0.01
+hints:
+  - Percent change is (new - old) / old, times 100.
+  - (100 - 80) / 80 = 0.25.
+explanation: (100 - 80)/80 = 0.25, which is 25%.

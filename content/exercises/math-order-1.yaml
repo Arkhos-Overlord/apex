@@ -1,0 +1,20 @@
+# Mathematics — recall and numeric exercises. No sandbox: the answer key
+# is graded statically, which is what lets a math curriculum run on the
+# same adaptive engine as a programming one.
+
+id: math-order-1
+title: Order of Operations
+kind: numeric
+skills: [order-of-operations]
+difficulty: 1
+prompt: |
+  Evaluate exactly as written, remembering that multiplication binds
+  tighter than addition:
+
+      2 + 3 * 4
+answer: "14"
+tolerance: 0.0
+hints:
+  - Multiplication happens before addition.
+  - Compute 3 * 4 first, then add 2.
+explanation: 3 * 4 = 12, and 12 + 2 = 14.

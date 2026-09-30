@@ -1,0 +1,51 @@
+# ── Spanish: a language domain with no code at all ────────────────────────
+#
+# Every exercise here is graded statically (recall/mcq). The web connects
+# Spanish vocabulary to the learner's existing concepts through
+# `part_of`/`related` edges, so mastery grows the same BKT web no matter
+# the domain.
+
+- id: spanish
+  name: Spanish
+  kind: concept
+  summary: A Romance language and the world's second-most-spoken native language.
+  prereqs: []
+  related: [programming]
+  part_of: []
+  applies_to: []
+
+- id: spanish-greetings
+  name: Spanish Greetings
+  summary: The words that open a conversation -- hola, buenos días, adiós.
+  prereqs: [spanish]
+  related: []
+  contrasts: []
+  part_of: [spanish]
+  applies_to: []
+
+- id: spanish-numbers
+  name: Spanish Numbers
+  summary: Counting in Spanish, from uno to cien.
+  prereqs: [spanish]
+  related: [arithmetic]
+  contrasts: []
+  part_of: [spanish]
+  applies_to: []
+
+- id: spanish-family
+  name: Spanish Family
+  summary: Words for the people closest to you -- madre, padre, hermano.
+  prereqs: [spanish]
+  related: []
+  contrasts: [spanish-greetings]
+  part_of: [spanish]
+  applies_to: []
+
+- id: spanish-verbs
+  name: Spanish Verbs
+  summary: Action words and how Spanish infinitives end in -ar, -er, -ir.
+  prereqs: [spanish-greetings]
+  related: [functions]
+  contrasts: []
+  part_of: [spanish]
+  applies_to: []

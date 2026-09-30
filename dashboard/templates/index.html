@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>APEX — Knowledge Web</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0e16'/%3E%3Cpath d='M18 4 8 18h6l-2 10L22 13h-6l2-9z' fill='%23818cf8'/%3E%3C/svg%3E">
     <link rel="stylesheet" href="/static/css/style.css">
     <script type="importmap">
     {
@@ -26,6 +27,7 @@
             <nav>
                 <a data-tab="web" class="active"><span class="nav-icon">🕸</span><span>Knowledge Web</span></a>
                 <a data-tab="dashboard"><span class="nav-icon">📊</span><span>Dashboard</span></a>
+                <a data-tab="intents"><span class="nav-icon">🧭</span><span>My Path</span></a>
                 <a data-tab="courses"><span class="nav-icon">📚</span><span>Courses</span></a>
             </nav>
             <div class="section-label">Practice</div>
@@ -80,6 +82,28 @@
                     <p class="chart-desc">The frontier of your knowledge web</p>
                     <div id="proposals-list"></div>
                 </div>
+            </section>
+
+            <section class="panel" id="panel-intents">
+                <div class="intent-board">
+                    <div class="intent-col" id="intent-want">
+                        <h3><span class="intent-icon want">☆</span> Want to learn</h3>
+                        <div class="intent-list"></div>
+                    </div>
+                    <div class="intent-col" id="intent-learning">
+                        <h3><span class="intent-icon learning">→</span> Learning</h3>
+                        <div class="intent-list"></div>
+                    </div>
+                    <div class="intent-col" id="intent-learned">
+                        <h3><span class="intent-icon learned">✓</span> Learned</h3>
+                        <div class="intent-list"></div>
+                    </div>
+                </div>
+                <p class="hint" style="margin-top:14px">
+                    Declaring intent is real signal: “learning” a topic raises its mastery prior and moves its
+                    exercises to the front of Practice; when BKT proves mastery, the card promotes itself to
+                    Learned. Archive hides a topic from practice and proposals.
+                </p>
             </section>
 
             <section class="panel" id="panel-courses"><div id="courses-list"></div></section>

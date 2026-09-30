@@ -53,7 +53,7 @@ _session = _build_session()
 app = FastAPI(
     title="APEX Dashboard API",
     description="AI-Powered eXperiential Education — live knowledge web and practice API",
-    version="0.3.0",
+    version="0.4.0",
 )
 
 app.mount("/static", StaticFiles(directory=_static_dir), name="static")
@@ -95,6 +95,9 @@ class GraphNode(BaseModel):
     mastered: bool = False
     unlocked: bool = False
     has_exercises: bool = False
+    # Declared intent (wantToLearn/learning/learned) or None; the 3D web
+    # colours intent nodes cyan even before their mastery moves.
+    intent: str | None = None
 
 
 class GraphEdge(BaseModel):
@@ -148,10 +151,13 @@ class CourseListResponse(BaseModel):
 class ExercisePublic(BaseModel):
     id: str
     title: str
+    kind: str = "code"
+    language: str = "python"
     skills: list[str]
     difficulty: int
     prompt: str
     starter: str
+    options: list[str] = []
     hints: list[str]
     tests: list[dict[str, Any]]
 
@@ -198,6 +204,32 @@ class ScheduleResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     health: dict[str, Any]
+
+
+class IntentItem(BaseModel):
+    id: str
+    name: str
+    kind: str
+    mastery: float
+    earned: bool
+    has_exercises: bool
+
+
+class IntentBoardResponse(BaseModel):
+    wantToLearn: list[IntentItem]
+    learning: list[IntentItem]
+    learned: list[IntentItem]
+
+
+class IntentRequest(BaseModel):
+    concept_id: str
+    state: str
+
+
+class IntentResponse(BaseModel):
+    concept: str
+    state: str
+    mastery: float
 
 
 # ---------------------------------------------------------------------------
@@ -297,6 +329,31 @@ async def proposals() -> ProposalList | JSONResponse:
     if isinstance(session, JSONResponse):
         return session
     return ProposalList(proposals=[ProposalItem(**asdict(p)) for p in session.proposals()])
+
+
+@app.get("/api/intents", response_model=IntentBoardResponse)
+async def intent_board() -> IntentBoardResponse | JSONResponse:
+    """The learner's declared intents: wantToLearn / learning / learned."""
+    session = _session_or_503()
+    if isinstance(session, JSONResponse):
+        return session
+    board = session.intent_board()
+    return IntentBoardResponse(**board)
+
+
+@app.post("/api/intents", response_model=IntentResponse)
+def declare_intent(body: IntentRequest) -> IntentResponse | JSONResponse:
+    """Declare intent on a concept (wantToLearn / learning / learned / archived)."""
+    session = _session_or_503()
+    if isinstance(session, JSONResponse):
+        return session
+    try:
+        result = session.set_learning_state(body.concept_id, body.state)
+    except KeyError:
+        return JSONResponse(status_code=404, content={"detail": f"unknown concept '{body.concept_id}'"})
+    except ValueError as exc:
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
+    return IntentResponse(**result)
 
 
 @app.get("/api/health", response_model=HealthResponse)

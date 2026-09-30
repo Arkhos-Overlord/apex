@@ -1,0 +1,35 @@
+name: tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      # The multi-domain content bank includes JavaScript exercises graded
+      # through the real sandbox, so CI needs a Node runtime.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      # The dashboard extra ships fastapi/uvicorn/jinja2: test_intent.py
+      # imports dashboard.server for the FastAPI TestClient checks, and the
+      # async engine tests need the anyio backend (via fastapi's dependency
+      # chain) that pytest-asyncio runs on.
+      - name: Install package and test deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dashboard,dev]"
+      - name: Run the suite
+        run: pytest apex/tests/ -q --timeout=300
+      - name: Eval spec (behavioral acceptance criteria)
+        run: python apex/tests/eval_spec.py
