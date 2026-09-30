@@ -244,7 +244,10 @@ def progress() -> None:
             f"[bold]{stats['graph_edges']}[/bold] edges in the web"
         )
     else:
-        console.print("\n[dim]No attempts recorded yet. Start with:[/dim] [bold]apex practice[/bold]")
+        console.print(
+            "\n[dim]No attempts recorded yet — nothing mastered so far. "
+            "Start with:[/dim] [bold]apex practice[/bold]"
+        )
 
     next_skill = session.next_skill()
     if next_skill:

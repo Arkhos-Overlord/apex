@@ -373,7 +373,7 @@ def s8_dashboard_serves_the_web(ctx: Ctx) -> tuple[bool, str]:
     for name in ("id", "name", "kind", "mastery", "mastered", "unlocked", "has_exercises"):
         if name not in practised:
             return False, f"served node missing '{name}'"
-    if "cytoscape" not in html.lower():
+    if "three" not in html.lower():
         return False, "page does not load a graph renderer"
     return True, (
         f"served {len(nodes)} nodes / {len(edges)} edges; "

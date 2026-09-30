@@ -15,7 +15,7 @@ APEX is **standalone**. It works with any AI agent, any model, any provider. You
 |---|---|---|
 | **Deployment** | Standalone CLI + web app | Plugin for specific agents only |
 | **Code execution** | Real sandboxed Python/JS with auto-grading | Static simulations only |
-| **Dashboard** | Interactive charts, knowledge graph, mastery tracking | Basic browser render |
+| **Dashboard** | 3D knowledge web (three.js r186), live practice workspace, mastery tracking | Basic browser render |
 | **Adaptive learning** | Elo-style difficulty algorithm | Simple evidence tracking |
 | **Spaced repetition** | SM-2 algorithm | None |
 | **Teacher personas** | 4 AI personas with voice | Static profiles |
@@ -72,9 +72,12 @@ pip install -e .
 
 ### Start the Web Dashboard
 
+The dashboard is a three.js knowledge web of the real graph, plus a practice workspace that grades code in the same sandbox the CLI uses:
+
 ```bash
-cd dashboard
-python -m uvicorn server:app --host 0.0.0.0 --port 8080
+python -m uvicorn dashboard.server:app --host 0.0.0.0 --port 8080
+# or the dependency-free stdlib server:
+apex dashboard
 ```
 
 Open [http://localhost:8080](http://localhost:8080) in your browser.
@@ -117,7 +120,7 @@ apex/
 │   ├── main.py              # Entry point
 │   ├── commands.py          # teach, course, practice, progress, dashboard
 │   └── config.py            # Configuration management
-├── dashboard/               # Web dashboard
+├── dashboard/               # Web dashboard: three.js knowledge web + practice API
 │   ├── server.py            # FastAPI backend
 │   ├── templates/           # HTML templates
 │   └── static/              # CSS, JS (Chart.js visualizations)
@@ -252,7 +255,7 @@ Contributions welcome! The project is structured to be extensible:
 1. Add new teacher personas in `apex/teachers/teacher_config.py`
 2. Add new content formats in `apex/engine/content_gen.py`
 3. Add new exercise types in `apex/engine/content_gen.py`
-4. Add new dashboard visualizations in `dashboard/static/js/app.js`
+4. Add new dashboard visualizations in `dashboard/static/js/web.js`
 
 ## Acknowledgments
 

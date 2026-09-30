@@ -3,8 +3,8 @@
 Run:  python apex/tests/check_ui.py [--headed]
 
 Complements eval_spec.py's S8, which proves the server returns the right
-JSON. This proves the page actually turns that JSON into a rendered
-graph, that Cytoscape loaded, and that no JavaScript errors occurred --
+JSON. This proves the page actually turns that JSON into a rendered 3D
+graph, that three.js loaded, and that no JavaScript errors occurred --
 none of which a status code or a payload assertion can tell you.
 """
 
@@ -73,37 +73,38 @@ def main() -> int:
             page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
 
             page.goto(url, wait_until="networkidle", timeout=30_000)
-            # Cytoscape renders into a canvas, so wait for it to exist and
-            # for the node count to arrive.
-            page.wait_for_selector("#cy canvas", timeout=15_000)
+            # three.js renders into a WebGL canvas; wait for the module to
+            # publish its scene summary before asserting on it.
+            page.wait_for_selector("#web-canvas", timeout=15_000)
             page.wait_for_function(
-                "() => window.cy && window.cy.nodes().length > 0",
-                timeout=15_000,
-            ) if page.evaluate("() => typeof window.cy !== 'undefined'") else None
-            time.sleep(2.0)
+                "() => window.__apexWeb && window.__apexWeb.nodeCount > 0",
+                timeout=20_000,
+            )
+            time.sleep(1.5)  # let the force simulation spread the web
 
             rendered = page.evaluate(
                 """() => {
-                    const el = document.querySelector('#cy');
-                    const canvas = el && el.querySelector('canvas');
+                    const canvas = document.querySelector('#web-canvas');
+                    const web = window.__apexWeb || {};
                     return {
-                        cytoscape: typeof window.cytoscape,
-                        canvases: document.querySelectorAll('#cy canvas').length,
+                        threeRevision: web.threeRevision || '',
                         hasSize: !!(canvas && canvas.width > 0 && canvas.height > 0),
-                        stats: document.querySelector('#stats')?.innerText || '',
-                        fallbackShown: getComputedStyle(document.querySelector('#fallback')).display,
-                        nodeCount: (window.cy && window.cy.nodes) ? window.cy.nodes().length : 0,
-                        edgeCount: (window.cy && window.cy.edges) ? window.cy.edges().length : 0,
+                        stats: document.querySelector('#stat-mastered')?.innerText || '',
+                        nodeCount: web.nodeCount || 0,
+                        edgeCount: web.edgeCount || 0,
                     };
                 }"""
             )
 
             # Click a node and confirm the detail panel populates.
-            detail_before = page.evaluate("() => document.querySelector('#detail').innerText")
+            detail_before = page.evaluate("() => document.querySelector('#web-detail').innerText")
             if rendered["nodeCount"] > 0:
-                page.evaluate("() => { const n = window.cy.nodes()[0]; window.cy.animate({center:{eles:n}, zoom:1.5},{duration:0}); n.emit('tap'); }")
+                page.evaluate(
+                    "() => { const canvas = document.getElementById('web-canvas');"
+                    "canvas.dispatchEvent(new MouseEvent('click', {clientX: canvas.getBoundingClientRect().width/2, clientY: canvas.getBoundingClientRect().height/2})); }"
+                )
                 time.sleep(0.8)
-            detail_after = page.evaluate("() => document.querySelector('#detail').innerText")
+            detail_after = page.evaluate("() => document.querySelector('#web-detail').innerText")
 
             shot = tmp / "dashboard.png"
             page.screenshot(path=str(shot), full_page=False)
@@ -113,14 +114,10 @@ def main() -> int:
                           "detail_after": detail_after[:160], "screenshot": str(shot)},
                          indent=2))
 
-        if rendered["cytoscape"] != "function":
-            problems.append("Cytoscape did not load")
-        if not rendered["canvases"]:
-            problems.append("no canvas was rendered in #cy")
+        if not rendered["threeRevision"]:
+            problems.append("three.js did not load (no revision published)")
         if not rendered["hasSize"]:
             problems.append("the canvas has zero size")
-        if rendered["fallbackShown"] == "block":
-            problems.append("fell back to the table; the graph did not draw")
         if rendered["nodeCount"] < 15:
             problems.append(f"only {rendered['nodeCount']} nodes in the layout")
         if rendered["edgeCount"] < 50:
@@ -143,7 +140,7 @@ def main() -> int:
             print(f"  - {problem}")
         return 1
 
-    print("\nUI CHECK PASSED: the knowledge web renders and is interactive.")
+    print("\nUI CHECK PASSED: the 3D knowledge web renders and is interactive.")
     print(f"screenshot: {shot}")
     return 0
 

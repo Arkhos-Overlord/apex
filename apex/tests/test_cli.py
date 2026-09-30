@@ -359,9 +359,6 @@ class TestPracticeCommand:
         assert "Adaptive Practice Session" in result.output
 
 
-class TestProgressCommand:
-    """Behaviour of the progress command."""
-
 class TestDashboardCommand:
     """Behaviour of the dashboard command.
 
@@ -424,7 +421,7 @@ class TestDashboardCommand:
                 with urllib.request.urlopen(f"http://127.0.0.1:{port}/") as resp:
                     html = resp.read().decode("utf-8")
                 assert "<html" in html.lower()
-                assert "cytoscape" in html
+                assert "three" in html.lower(), "page does not load the three.js renderer"
             finally:
                 server.shutdown()
                 server.server_close()
@@ -467,11 +464,11 @@ class TestCLIHelp:
         assert "dashboard" in result.output
 
     def test_version(self) -> None:
-        """apex --version returns 0.1.0."""
+        """apex --version returns the package version."""
         from apex.cli.main import cli
         from click.testing import CliRunner
 
         runner = CliRunner()
         result = runner.invoke(cli, ["--version"])
         assert result.exit_code == 0
-        assert "0.1.0" in result.output
+        assert "0.2.0" in result.output

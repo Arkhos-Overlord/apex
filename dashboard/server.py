@@ -1,278 +1,203 @@
 """APEX — AI-Powered eXperiential Education Dashboard.
 
-FastAPI backend serving learner progress, heatmaps, knowledge graphs,
-course navigation, and spaced-repetition schedules.
+FastAPI backend serving the *real* learning engine: the knowledge web
+(:mod:`apex.graph`), BKT mastery, graded attempts, spaced-repetition
+schedule, and the practice loop. Every number the dashboard shows comes
+from a :class:`~apex.session.LearningSession`; there is no demo data.
+
+The practice endpoint grades browser-submitted code in the same sandbox
+the CLI uses, so a submission from the web updates mastery exactly like
+``apex practice`` does.
 """
 
-from contextlib import asynccontextmanager
+from __future__ import annotations
+
+from dataclasses import asdict
+from datetime import date, timedelta
 from pathlib import Path
-from statistics import mean
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-# ---------------------------------------------------------------------------
-# Data store (in-memory, seeded with realistic demo data)
-# ---------------------------------------------------------------------------
+from apex.content import ContentLibrary
+from apex.session import LearningSession, default_content_root, default_db_path, default_learner
+from apex.store import Store
 
-COURSES = {
-    "intro-python": {
-        "id": "intro-python",
-        "title": "Introduction to Python",
-        "description": "Variables, loops, functions, and data structures.",
-        "duration_weeks": 6,
-        "modules": [
-            {"id": "m1", "title": "Variables & Types", "lessons": 4},
-            {"id": "m2", "title": "Control Flow", "lessons": 5},
-            {"id": "m3", "title": "Functions", "lessons": 6},
-            {"id": "m4", "title": "Data Structures", "lessons": 5},
-            {"id": "m5", "title": "File I/O", "lessons": 3},
-            {"id": "m6", "title": "Final Project", "lessons": 2},
-        ],
-    },
-    "data-science": {
-        "id": "data-science",
-        "title": "Data Science Fundamentals",
-        "description": "Pandas, NumPy, visualization, and statistical thinking.",
-        "duration_weeks": 8,
-        "modules": [
-            {"id": "m1", "title": "NumPy & Arrays", "lessons": 4},
-            {"id": "m2", "title": "Pandas Basics", "lessons": 6},
-            {"id": "m3", "title": "Data Visualization", "lessons": 5},
-            {"id": "m4", "title": "Statistical Inference", "lessons": 7},
-            {"id": "m5", "title": "Machine Learning Intro", "lessons": 8},
-        ],
-    },
-    "web-dev": {
-        "id": "web-dev",
-        "title": "Modern Web Development",
-        "description": "HTML, CSS, JavaScript, and backend fundamentals.",
-        "duration_weeks": 10,
-        "modules": [
-            {"id": "m1", "title": "HTML & Semantics", "lessons": 4},
-            {"id": "m2", "title": "CSS Layouts", "lessons": 6},
-            {"id": "m3", "title": "JavaScript Basics", "lessons": 8},
-            {"id": "m4", "title": "DOM & Events", "lessons": 5},
-            {"id": "m5", "title": "APIs & Fetch", "lessons": 4},
-            {"id": "m6", "title": "Backend Basics", "lessons": 7},
-        ],
-    },
-    "machine-learning": {
-        "id": "machine-learning",
-        "title": "Machine Learning Deep Dive",
-        "description": "Supervised, unsupervised, and deep learning.",
-        "duration_weeks": 12,
-        "modules": [
-            {"id": "m1", "title": "Linear Models", "lessons": 6},
-            {"id": "m2", "title": "Decision Trees & Ensembles", "lessons": 7},
-            {"id": "m3", "title": "Neural Networks", "lessons": 10},
-            {"id": "m4", "title": "Convolutional & RNNs", "lessons": 8},
-            {"id": "m5", "title": "Transformers", "lessons": 6},
-        ],
-    },
-}
-
-LEARNERS = {
-    "alice": {
-        "id": "alice",
-        "name": "Alice Chen",
-        "avatar": "AC",
-        "joined": "2025-09-01",
-        "courses": ["intro-python", "data-science"],
-    },
-    "bob": {
-        "id": "bob",
-        "name": "Bob Martinez",
-        "avatar": "BM",
-        "joined": "2025-10-15",
-        "courses": ["web-dev", "machine-learning"],
-    },
-}
-
-import hashlib
+_templates_dir = Path(__file__).parent / "templates"
+_static_dir = Path(__file__).parent / "static"
 
 
-def _seed(learner_id: str, course_id: str, topic: str) -> float:
-    """Deterministic pseudo-mastery in the [0.1, 1.0] range for demo data."""
-    h = hashlib.md5(f"{learner_id}:{course_id}:{topic}".encode()).hexdigest()
-    return round(int(h[:6], 16) / 0xFFFFFF * 0.9 + 0.1, 2)
+def _build_session(learner: str | None = None) -> LearningSession:
+    """Create a session, tolerating a missing content directory.
+
+    A dashboard that cannot find content still has to start — FastAPI
+    mounts at import time — so the failure is deferred to request time
+    where it can be reported as a proper 503.
+    """
+    try:
+        library = ContentLibrary(default_content_root())
+    except (FileNotFoundError, ValueError):
+        library = None
+    return LearningSession(
+        learner=learner or default_learner(),
+        library=library,
+        store=Store(default_db_path()),
+    )
 
 
-TOPICS_BY_COURSE = {
-    "intro-python": ["variables", "loops", "functions", "lists", "dicts", "file-io"],
-    "data-science": ["numpy", "pandas", "matplotlib", "statistics", "regression"],
-    "web-dev": ["html", "css", "javascript", "dom", "fetch", "backend"],
-    "machine-learning": ["linear-models", "trees", "nn-basics", "cv", "transformers"],
-}
+_session = _build_session()
 
-MASTERY = {}
-TIME_ON_TASK = {}
-SCHEDULE = {}
+app = FastAPI(
+    title="APEX Dashboard API",
+    description="AI-Powered eXperiential Education — live knowledge web and practice API",
+    version="0.3.0",
+)
 
-for lid, ldata in LEARNERS.items():
-    for cid in ldata["courses"]:
-        topics = TOPICS_BY_COURSE.get(cid, [])
-        MASTERY.setdefault(lid, {}).setdefault(cid, {})
-        TIME_ON_TASK.setdefault(lid, {}).setdefault(cid, {})
-        for t in topics:
-            MASTERY[lid][cid][t] = _seed(lid, cid, t)
-            TIME_ON_TASK[lid][cid][t] = round(_seed(lid, cid, t + "_time") * 120, 1)
-        SCHEDULE.setdefault(lid, {}).setdefault(cid, [])
-        from datetime import date, timedelta
-
-        base = date.today()
-        for i, t in enumerate(topics):
-            SCHEDULE[lid][cid].append(
-                {
-                    "topic": t,
-                    "next_review": (base + timedelta(days=2 + i * 3)).isoformat(),
-                    "last_reviewed": (base - timedelta(days=1 + i * 2)).isoformat(),
-                    "interval_days": 2 + i * 3,
-                    "ease_factor": round(2.0 + i * 0.15, 2),
-                }
-            )
-
-KNOWLEDGE_GRAPH = {
-    "intro-python": [
-        {"source": "variables", "target": "lists", "strength": 0.9},
-        {"source": "variables", "target": "dicts", "strength": 0.8},
-        {"source": "loops", "target": "lists", "strength": 0.95},
-        {"source": "loops", "target": "functions", "strength": 0.7},
-        {"source": "functions", "target": "file-io", "strength": 0.6},
-        {"source": "dicts", "target": "file-io", "strength": 0.5},
-        {"source": "lists", "target": "file-io", "strength": 0.7},
-    ],
-    "data-science": [
-        {"source": "numpy", "target": "pandas", "strength": 0.9},
-        {"source": "numpy", "target": "matplotlib", "strength": 0.85},
-        {"source": "pandas", "target": "matplotlib", "strength": 0.8},
-        {"source": "pandas", "target": "statistics", "strength": 0.75},
-        {"source": "statistics", "target": "regression", "strength": 0.9},
-        {"source": "matplotlib", "target": "regression", "strength": 0.6},
-    ],
-    "web-dev": [
-        {"source": "html", "target": "css", "strength": 0.85},
-        {"source": "css", "target": "javascript", "strength": 0.7},
-        {"source": "javascript", "target": "dom", "strength": 0.95},
-        {"source": "dom", "target": "fetch", "strength": 0.8},
-        {"source": "fetch", "target": "backend", "strength": 0.75},
-        {"source": "html", "target": "javascript", "strength": 0.5},
-    ],
-    "machine-learning": [
-        {"source": "linear-models", "target": "trees", "strength": 0.6},
-        {"source": "trees", "target": "nn-basics", "strength": 0.7},
-        {"source": "nn-basics", "target": "cv", "strength": 0.85},
-        {"source": "nn-basics", "target": "transformers", "strength": 0.75},
-        {"source": "cv", "target": "transformers", "strength": 0.6},
-        {"source": "linear-models", "target": "nn-basics", "strength": 0.5},
-    ],
-}
-
-HEATMAP = {}
-for lid, ldata in LEARNERS.items():
-    HEATMAP[lid] = {}
-    for cid in ldata["courses"]:
-        rows = []
-        from datetime import date, timedelta
-
-        today = date.today()
-        for i in range(60):
-            d = (today - timedelta(days=59 - i)).isoformat()
-            row = {"date": d, "topics": {}}
-            for t in TOPICS_BY_COURSE.get(cid, []):
-                row["topics"][t] = round(_seed(lid, cid, t + "_" + d[:8]) * 90, 1)
-            rows.append(row)
-        HEATMAP[lid][cid] = rows
+app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
 
 # ---------------------------------------------------------------------------
-# Pydantic models
+# Rendering (Jinja is only used to inject the learner id; the page itself is
+# a static shell so the frontend can never drift from the Python data model)
+# ---------------------------------------------------------------------------
+
+try:
+    from jinja2 import Environment, FileSystemLoader, select_autoescape
+
+    _jinja: Environment | None = Environment(
+        loader=FileSystemLoader(str(_templates_dir)),
+        autoescape=select_autoescape(["html", "xml"]),
+    )
+except ImportError:  # pragma: no cover - jinja is a dashboard extra
+    _jinja = None
+
+
+def _render(name: str, **context: Any) -> str:
+    if _jinja is None:
+        raise RuntimeError("jinja2 is required to serve dashboard pages")
+    return _jinja.get_template(name).render(**context)
+
+
+# ---------------------------------------------------------------------------
+# Pydantic response models
 # ---------------------------------------------------------------------------
 
 
-class HeatmapRow(BaseModel):
-    date: str
-    topics: dict[str, float]
-
-
-class HeatmapResponse(BaseModel):
-    learner_id: str
-    course_id: str
-    course_title: str
-    data: list[HeatmapRow]
-
-
-class KnowledgeGraphNode(BaseModel):
+class GraphNode(BaseModel):
     id: str
-    name: str = ""
-    group: str
+    name: str
+    kind: str
+    summary: str = ""
+    mastery: float = 0.0
+    mastered: bool = False
+    unlocked: bool = False
+    has_exercises: bool = False
 
 
-class KnowledgeGraphEdge(BaseModel):
+class GraphEdge(BaseModel):
     source: str
     target: str
-    strength: float
+    relation: str
+    confirmed: bool | None = None
 
 
-class KnowledgeGraphResponse(BaseModel):
-    learner_id: str
-    course_id: str
-    nodes: list[KnowledgeGraphNode]
-    edges: list[KnowledgeGraphEdge]
+class GraphPayload(BaseModel):
+    learner: str
+    nodes: list[GraphNode]
+    edges: list[GraphEdge]
+    stats: dict[str, Any]
 
 
-class ScheduleItem(BaseModel):
-    topic: str
-    next_review: str
-    last_reviewed: str
+class StatsResponse(BaseModel):
+    stats: dict[str, Any]
+
+
+class ProposalItem(BaseModel):
+    concept_id: str
+    name: str
+    summary: str
+    kind: str
+    reason: str
+    has_exercises: bool
+    neighbours: list[str] = []
+
+
+class ProposalList(BaseModel):
+    proposals: list[ProposalItem]
+
+
+class CourseProgressItem(BaseModel):
+    id: str
+    title: str
+    description: str
+    skills: list[str]
+    solved: int
+    total: int
+    mastery: float
+    complete: bool
+    level: str
+
+
+class CourseListResponse(BaseModel):
+    courses: list[CourseProgressItem]
+
+
+class ExercisePublic(BaseModel):
+    id: str
+    title: str
+    skills: list[str]
+    difficulty: int
+    prompt: str
+    starter: str
+    hints: list[str]
+    tests: list[dict[str, Any]]
+
+
+class NextExerciseResponse(BaseModel):
+    exercise: ExercisePublic | None = None
+
+
+class SubmissionResult(BaseModel):
+    exercise_id: str
+    passed: bool
+    passed_count: int
+    total: int
+    score: float
+    details: list[dict[str, Any]]
+    duration_s: float
+    newly_mastered: list[str]
+    mastery_after: dict[str, float]
+
+
+class AttemptItem(BaseModel):
+    exercise: str
+    passed: bool
+    score: float
+    duration: int
+    ts: str
+
+
+class AttemptsResponse(BaseModel):
+    attempts: list[AttemptItem]
+
+
+class ReviewItem(BaseModel):
+    skill: str
+    due_date: str
     interval_days: int
     ease_factor: float
 
 
 class ScheduleResponse(BaseModel):
     learner_id: str
-    course_id: str
-    items: list[ScheduleItem]
+    items: list[ReviewItem]
 
 
-class CourseProgressResponse(BaseModel):
-    course_id: str
-    course_title: str
-    modules: list[dict]
-    completion_pct: float = Field(ge=0, le=100)
-    lessons_completed: int
-    total_lessons: int
-
-
-class CourseListResponse(BaseModel):
-    courses: list[dict]
-
-
-class CourseCompletionResponse(BaseModel):
-    course_id: str
-    completion_percent: float = Field(ge=0, le=100)
-
-
-class TopicMasteryItem(BaseModel):
-    topic: str
-    score: float = Field(ge=0, le=100)
-
-
-class TopicMasteryResponse(BaseModel):
-    learner_id: str
-    course_id: str
-    topics: list[TopicMasteryItem]
-
-
-class LearnerProgressResponse(BaseModel):
-    learner_id: str
-    learner_name: str
-    courses: list[dict] = []
-    overall_mastery: float = 0.0
-    total_time_on_task: float = 0.0
-    topics_covered: int = 0
+class HealthResponse(BaseModel):
+    health: dict[str, Any]
 
 
 # ---------------------------------------------------------------------------
@@ -280,52 +205,52 @@ class LearnerProgressResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _learner_or_404(lid: str):
-    if lid not in LEARNERS:
-        return JSONResponse(status_code=404, content={"detail": f"Learner '{lid}' not found"})
-    return LEARNERS[lid]
+def _session_or_503() -> LearningSession | JSONResponse:
+    if _session.library is None:
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "content library not found; set APEX_CONTENT_DIR"},
+        )
+    return _session
 
 
-def _course_or_404(cid: str):
-    if cid not in COURSES:
-        return JSONResponse(status_code=404, content={"detail": f"Course '{cid}' not found"})
-    return COURSES[cid]
+def _library_or_503() -> ContentLibrary | JSONResponse:
+    if _session.library is None:
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "content library not found; set APEX_CONTENT_DIR"},
+        )
+    return _session.library
 
 
-# ---------------------------------------------------------------------------
-# FastAPI app
-# ---------------------------------------------------------------------------
+def _due_reviews(learner: str, limit: int = 12) -> list[ReviewItem]:
+    """Deterministic SM-2-style review schedule over mastered skills.
 
-from jinja2 import Environment, FileSystemLoader, select_autoescape
-
-templates_dir = Path(__file__).parent / "templates"
-static_dir = Path(__file__).parent / "static"
-
-jinja_env = Environment(
-    loader=FileSystemLoader(str(templates_dir)),
-    autoescape=select_autoescape(["html", "xml"]),
-)
-
-
-def render_template(name: str, context: dict):
-    """Render a Jinja2 template to HTML string."""
-    tmpl = jinja_env.get_template(name)
-    return tmpl.render(**context)
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    yield
-
-
-app = FastAPI(
-    title="APEX Dashboard API",
-    description="AI-Powered eXperiential Education — learner progress API",
-    version="1.0.0",
-    lifespan=lifespan,
-)
-
-app.mount("/static", StaticFiles(directory=static_dir), name="static")
+    Intervals grow with mastery (the better you know something, the longer
+    the gap), and the anchor date is stable per skill, so the schedule does
+    not reshuffle between refreshes.
+    """
+    library = _session.library
+    mastery = _session.mastery()
+    items: list[ReviewItem] = []
+    today = date.today()
+    for skill in sorted(library.skills):
+        m = mastery.get(skill)
+        if m is None or m < 0.5:
+            continue
+        interval = max(1, min(60, int(2 ** (m * 5))))
+        anchor_days = int.from_bytes(skill.encode()[:2], "big") % 7
+        due = today + timedelta(days=anchor_days - (today.toordinal() % interval or 0))
+        items.append(
+            ReviewItem(
+                skill=skill,
+                due_date=due.isoformat(),
+                interval_days=interval,
+                ease_factor=round(1.3 + m * 1.2, 2),
+            )
+        )
+    items.sort(key=lambda r: r.due_date)
+    return items[:limit]
 
 
 # ---------------------------------------------------------------------------
@@ -333,238 +258,150 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 # ---------------------------------------------------------------------------
 
 
+@app.get("/health")
+async def health_check() -> dict[str, str]:
+    return {"status": "healthy", "service": "apex", "version": "0.3.0"}
 
 
-@app.get('/health')
-async def health_check():
-    return {'status': 'healthy', 'service': 'apex', 'version': '0.1.0'}
-
-
-@app.get("/")
-async def index(request: Request):
-    return HTMLResponse(content=render_template("index.html", {"request": request}))
-
-
-@app.get("/course/{course_id}")
-async def course_page(request: Request, course_id: str):
-    course = _course_or_404(course_id)
-    if isinstance(course, JSONResponse):
-        return course
-    return HTMLResponse(
-        content=render_template("course.html", {"request": request, "course": course})
-    )
-
-
-@app.get("/lesson/{course_id}/{lesson_slug}")
-async def lesson_page(request: Request, course_id: str, lesson_slug: str):
-    course = _course_or_404(course_id)
-    if isinstance(course, JSONResponse):
-        return course
-    return HTMLResponse(
-        content=render_template(
-            "lesson.html",
-            {"request": request, "course": course, "lesson_slug": lesson_slug},
-        )
-    )
+@app.get("/", response_class=HTMLResponse)
+async def index(request: Request) -> HTMLResponse:
+    return HTMLResponse(_render("index.html", learner=_session.learner))
 
 
 # ---------------------------------------------------------------------------
-# API endpoints
+# Knowledge web API
 # ---------------------------------------------------------------------------
 
 
-@app.get("/api/learner/{learner_id}/progress", response_model=LearnerProgressResponse)
-async def learner_progress(learner_id: str):
-    learner = _learner_or_404(learner_id)
-    if isinstance(learner, JSONResponse):
-        return learner
-
-    courses_summary = []
-    all_masteries = []
-    total_time = 0.0
-
-    for cid in learner["courses"]:
-        m = MASTERY.get(learner_id, {}).get(cid, {})
-        t = TIME_ON_TASK.get(learner_id, {}).get(cid, {})
-        avg_mastery = mean(m.values()) if m else 0.0
-        course_time = sum(t.values()) if t else 0.0
-        total_time += course_time
-        all_masteries.extend(m.values())
-        courses_summary.append(
-            {
-                "course_id": cid,
-                "course_title": COURSES[cid]["title"],
-                "average_mastery": round(avg_mastery, 3),
-                "time_on_task_minutes": round(course_time, 1),
-                "topics_covered": len(m),
-            }
-        )
-
-    overall = mean(all_masteries) if all_masteries else 0.0
-    total_topics = sum(len(MASTERY.get(learner_id, {}).get(cid, {})) for cid in learner["courses"])
-
-    return LearnerProgressResponse(
-        learner_id=learner_id,
-        learner_name=learner["name"],
-        courses=courses_summary,
-        overall_mastery=round(overall, 3),
-        total_time_on_task=round(total_time, 1),
-        topics_covered=total_topics,
-    )
+@app.get("/api/graph", response_model=GraphPayload)
+async def knowledge_graph() -> GraphPayload | JSONResponse:
+    """The whole knowledge web, annotated with the learner's mastery."""
+    session = _session_or_503()
+    if isinstance(session, JSONResponse):
+        return session
+    return GraphPayload(**session.graph_payload())
 
 
-@app.get("/api/learner/{learner_id}/heatmap", response_model=HeatmapResponse)
-async def learner_heatmap(learner_id: str, course_id: str = None):
-    learner = _learner_or_404(learner_id)
-    if isinstance(learner, JSONResponse):
-        return learner
-
-    if course_id is None:
-        course_id = learner["courses"][0] if learner["courses"] else None
-    if course_id is None:
-        return JSONResponse(status_code=400, content={"detail": "Learner has no courses"})
-
-    if course_id not in COURSES:
-        return JSONResponse(status_code=404, content={"detail": f"Course '{course_id}' not found"})
-
-    data = HEATMAP.get(learner_id, {}).get(course_id, [])
-    return HeatmapResponse(
-        learner_id=learner_id,
-        course_id=course_id,
-        course_title=COURSES[course_id]["title"],
-        data=[HeatmapRow(**row) for row in data],
-    )
+@app.get("/api/stats", response_model=StatsResponse)
+async def stats() -> StatsResponse | JSONResponse:
+    session = _session_or_503()
+    if isinstance(session, JSONResponse):
+        return session
+    return StatsResponse(stats=session.stats())
 
 
-@app.get("/api/learner/{learner_id}/knowledge-graph", response_model=KnowledgeGraphResponse)
-async def learner_knowledge_graph(learner_id: str, course_id: str):
-    learner = _learner_or_404(learner_id)
-    if isinstance(learner, JSONResponse):
-        return learner
-    if course_id not in COURSES:
-        return JSONResponse(status_code=404, content={"detail": f"Course '{course_id}' not found"})
-
-    edges = KNOWLEDGE_GRAPH.get(course_id, [])
-    nodes = []
-    node_ids = set()
-    for e in edges:
-        node_ids.add(e["source"])
-        node_ids.add(e["target"])
-    for nid in sorted(node_ids):
-        nodes.append(KnowledgeGraphNode(id=nid, name=nid, group=course_id))
-
-    return KnowledgeGraphResponse(
-        learner_id=learner_id,
-        course_id=course_id,
-        nodes=nodes,
-        edges=[
-            KnowledgeGraphEdge(source=e["source"], target=e["target"], strength=e["strength"])
-            for e in edges
-        ],
-    )
+@app.get("/api/proposals", response_model=ProposalList)
+async def proposals() -> ProposalList | JSONResponse:
+    """What to learn next, with the reason each suggestion was made."""
+    session = _session_or_503()
+    if isinstance(session, JSONResponse):
+        return session
+    return ProposalList(proposals=[ProposalItem(**asdict(p)) for p in session.proposals()])
 
 
-@app.get("/api/learner/{learner_id}/schedule", response_model=ScheduleResponse)
-async def learner_schedule(learner_id: str, course_id: str):
-    learner = _learner_or_404(learner_id)
-    if isinstance(learner, JSONResponse):
-        return learner
-    if course_id not in COURSES:
-        return JSONResponse(status_code=404, content={"detail": f"Course '{course_id}' not found"})
+@app.get("/api/health", response_model=HealthResponse)
+async def content_health() -> HealthResponse | JSONResponse:
+    library = _library_or_503()
+    if isinstance(library, JSONResponse):
+        return library
+    return HealthResponse(health=library.health())
 
-    items = SCHEDULE.get(learner_id, {}).get(course_id, [])
-    return ScheduleResponse(
-        learner_id=learner_id,
-        course_id=course_id,
-        items=[ScheduleItem(**item) for item in items],
-    )
+
+# ---------------------------------------------------------------------------
+# Courses & practice API
+# ---------------------------------------------------------------------------
 
 
 @app.get("/api/courses", response_model=CourseListResponse)
-async def list_courses():
-    return CourseListResponse(
-        courses=[
-            {
-                "id": cid,
-                "title": c["title"],
-                "description": c["description"],
-                "duration_weeks": c["duration_weeks"],
-                "module_count": len(c["modules"]),
-            }
-            for cid, c in COURSES.items()
+async def list_courses() -> CourseListResponse | JSONResponse:
+    session = _session_or_503()
+    if isinstance(session, JSONResponse):
+        return session
+    out: list[CourseProgressItem] = []
+    for progress in session.all_course_progress():
+        out.append(
+            CourseProgressItem(
+                id=progress.course.id,
+                title=progress.course.title,
+                description=progress.course.description,
+                skills=list(progress.course.skills),
+                solved=progress.solved,
+                total=progress.total,
+                mastery=round(progress.mastery, 4),
+                complete=progress.complete,
+                level=progress.level,
+            )
+        )
+    return CourseListResponse(courses=out)
+
+
+@app.get("/api/practice/next", response_model=NextExerciseResponse)
+async def next_exercise(course_id: str | None = None) -> NextExerciseResponse | JSONResponse:
+    """The next exercise to attempt, chosen by weakest-skill-first."""
+    session = _session_or_503()
+    if isinstance(session, JSONResponse):
+        return session
+    exercise = session.next_exercise(course_id=course_id)
+    if exercise is None:
+        return NextExerciseResponse(exercise=None)
+    return NextExerciseResponse(exercise=ExercisePublic(**exercise.public()))
+
+
+class Submission(BaseModel):
+    source: str = Field(min_length=1, max_length=20_000)
+
+
+@app.post("/api/practice/submit", response_model=SubmissionResult)
+def submit_solution(body: Submission, exercise_id: str) -> SubmissionResult | JSONResponse:
+    # Deliberately a *sync* endpoint: grading shells out through asyncio.run
+    # (the sandbox is async), which would raise inside a running event loop.
+    # FastAPI runs sync handlers in a threadpool, so there is no loop here.
+    """Grade browser-submitted code in the sandbox and update mastery.
+
+    Same path as ``apex practice``: :meth:`LearningSession.submit` runs the
+    hidden tests, applies the BKT update for every assessed skill, and
+    records the attempt.
+    """
+    session = _session_or_503()
+    if isinstance(session, JSONResponse):
+        return session
+    exercise = session.library.get_exercise(exercise_id)
+    if exercise is None:
+        return JSONResponse(status_code=404, content={"detail": f"unknown exercise '{exercise_id}'"})
+    report = session.submit(body.source, exercise)
+    return SubmissionResult(
+        exercise_id=exercise.id,
+        passed=report.passed,
+        passed_count=report.passed_count,
+        total=report.total,
+        score=round(report.score, 4),
+        details=report.details,
+        duration_s=round(report.duration_s, 3),
+        newly_mastered=report.newly_mastered,
+        mastery_after={k: round(v, 4) for k, v in report.mastery_after.items()},
+    )
+
+
+@app.get("/api/attempts", response_model=AttemptsResponse)
+async def attempts() -> AttemptsResponse | JSONResponse:
+    session = _session_or_503()
+    if isinstance(session, JSONResponse):
+        return session
+    rows = session.attempts()[-50:]
+    return AttemptsResponse(
+        attempts=[
+            AttemptItem(
+                exercise=r["exercise"],
+                passed=bool(r["passed"]),
+                score=float(r["score"]),
+                duration=int(r["duration"]),
+                ts=str(r["ts"]),
+            )
+            for r in rows
         ]
     )
 
 
-@app.get("/api/course/{course_id}/progress", response_model=CourseProgressResponse)
-async def course_progress(course_id: str):
-    course = _course_or_404(course_id)
-    if isinstance(course, JSONResponse):
-        return course
-
-    modules = course["modules"]
-    total_lessons = sum(m["lessons"] for m in modules)
-    lessons_done = round(total_lessons * 0.6)
-    completion = round(lessons_done / total_lessons * 100, 1)
-
-    return CourseProgressResponse(
-        course_id=course_id,
-        course_title=course["title"],
-        modules=[
-            {
-                "id": m["id"],
-                "title": m["title"],
-                "lessons": m["lessons"],
-                "completed_lessons": round(m["lessons"] * 0.6),
-            }
-            for m in modules
-        ],
-        completion_pct=completion,
-        lessons_completed=lessons_done,
-        total_lessons=total_lessons,
-    )
-
-
-@app.get("/api/course/{course_id}/completion", response_model=CourseCompletionResponse)
-async def course_completion(course_id: str):
-    """Completion percentage consumed by the courses panel."""
-    course = _course_or_404(course_id)
-    if isinstance(course, JSONResponse):
-        return course
-
-    modules = course["modules"]
-    total_lessons = sum(m["lessons"] for m in modules)
-    lessons_done = round(total_lessons * 0.6)
-    completion = round(lessons_done / total_lessons * 100, 1) if total_lessons else 0.0
-
-    return CourseCompletionResponse(
-        course_id=course_id,
-        completion_percent=completion,
-    )
-
-
-@app.get("/api/learner/{learner_id}/mastery", response_model=TopicMasteryResponse)
-async def learner_topic_mastery(learner_id: str, course_id: str):
-    """Per-topic mastery scores (0-100) for one learner and course."""
-    learner = _learner_or_404(learner_id)
-    if isinstance(learner, JSONResponse):
-        return learner
-    if course_id not in COURSES:
-        return JSONResponse(status_code=404, content={"detail": f"Course '{course_id}' not found"})
-
-    topics = MASTERY.get(learner_id, {}).get(course_id, {})
-    items = [
-        TopicMasteryItem(topic=t, score=round(float(s) * 100, 1))
-        for t, s in sorted(topics.items())
-    ]
-    return TopicMasteryResponse(
-        learner_id=learner_id,
-        course_id=course_id,
-        topics=items,
-    )
-
-
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8080, reload=False)
+@app.get("/api/schedule", response_model=ScheduleResponse)
+async def schedule() -> ScheduleResponse:
+    return ScheduleResponse(learner_id=_session.learner, items=_due_reviews(_session.learner))
