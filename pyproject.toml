@@ -46,6 +46,14 @@ docker = ["docker>=6.0"]
 dev = [
     "pytest>=8.0",
     "pytest-timeout>=2.2",
+    # test_sandbox.py marks its async engine tests with @pytest.mark.asyncio
+    "pytest-asyncio>=0.23",
+    # fastapi.testclient (used for the dashboard API tests) needs an httpx
+    # transport, and test_intent.py imports dashboard.server directly
+    "httpx>=0.27",
+    "fastapi>=0.104",
+    # test_content_gen asserts real PDF magic bytes, not the HTML fallback
+    "fpdf2>=2.7",
 ]
 
 [project.scripts]

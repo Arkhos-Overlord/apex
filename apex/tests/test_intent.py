@@ -188,6 +188,11 @@ class TestGraphPayload:
 
 
 class TestIntentAPIs:
+    # The FastAPI surface is a `dashboard` extra, not a hard dependency; CI
+    # installs it, but a bare `pip install -e .[dev]` should skip rather
+    # than error if someone prunes the environment.
+    pytest.importorskip("fastapi", reason="fastapi (dashboard extra) not installed")
+
     def test_fastapi_board_and_declare(self, tmp_path, monkeypatch) -> None:
         import importlib
         import os
