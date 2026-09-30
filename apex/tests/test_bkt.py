@@ -97,10 +97,10 @@ def test_select_next_returns_none_when_done(store: Store, lib: ContentLibrary) -
         assert result.id in lib.exercises
 
 
-def test_select_next_respects_prereqs(lib: ContentLibrary) -> None:
+def test_select_next_respects_prereqs(lib: ContentLibrary, tmp_path) -> None:
     """select_next only returns exercises whose prereqs are unlocked."""
     # If 'io' has mastery 0.0, 'arithmetic' (which requires io) should not be selected
-    store = Store(str(Path(__file__).resolve().parents[2] / "tmp_test.db"))
+    store = Store(tmp_path / "prereq.db")
     store.set_mastery("test", {"io": 0.0})
     solved: set[str] = set()
     result = select_next(store.get_mastery("test"), solved, list(lib.exercises.values()), DEFAULT)

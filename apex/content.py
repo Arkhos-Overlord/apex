@@ -155,8 +155,8 @@ class ContentLibrary:
             ``exercises/`` folder.
     """
 
-    def __init__(self, root: Path):
-        self.root = root
+    def __init__(self, root: str | Path):
+        self.root = Path(root)
         self.skills: dict[str, Skill] = {}
         self.courses: dict[str, CourseDef] = {}
         self.exercises: dict[str, Exercise] = {}

@@ -3,8 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>APEX - Learning Intelligence</title>
+    <title>APEX — Knowledge Web</title>
     <link rel="stylesheet" href="/static/css/style.css">
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+        }
+    }
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
@@ -12,59 +20,110 @@
         <aside class="sidebar">
             <div class="logo">
                 <div class="logo-icon">⚡</div>
-                <div><h1>APEX</h1><span class="tagline">Learning Intelligence</span></div>
+                <div><h1>APEX</h1><span class="tagline">Knowledge Web</span></div>
             </div>
-            <div class="section-label">Analytics</div>
+            <div class="section-label">Explore</div>
             <nav>
-                <a data-tab="dashboard" class="active"><span class="nav-icon">📊</span><span>Dashboard</span></a>
-                <a data-tab="progress"><span class="nav-icon">📈</span><span>Progress</span></a>
-                <a data-tab="knowledge"><span class="nav-icon">🧠</span><span>Knowledge Graph</span></a>
-            </nav>
-            <div class="section-label">Courses</div>
-            <nav>
+                <a data-tab="web" class="active"><span class="nav-icon">🕸</span><span>Knowledge Web</span></a>
+                <a data-tab="dashboard"><span class="nav-icon">📊</span><span>Dashboard</span></a>
                 <a data-tab="courses"><span class="nav-icon">📚</span><span>Courses</span></a>
-                <a data-tab="mastery"><span class="nav-icon">🎯</span><span>Mastery</span></a>
-                <a data-tab="spaced"><span class="nav-icon">🔄</span><span>Spaced Repetition</span></a>
             </nav>
+            <div class="section-label">Practice</div>
+            <nav>
+                <a data-tab="practice"><span class="nav-icon">⚡</span><span>Practice</span></a>
+                <a data-tab="mastery"><span class="nav-icon">🎯</span><span>Mastery</span></a>
+                <a data-tab="spaced"><span class="nav-icon">🔄</span><span>Reviews</span></a>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="legend-dot dot-mastered"></div><span>mastered</span>
+                <div class="legend-dot dot-unlocked"></div><span>unlocked</span>
+                <div class="legend-dot dot-locked"></div><span>locked</span>
+                <div class="legend-dot dot-concept"></div><span>concept</span>
+            </div>
         </aside>
         <main class="main-content">
             <div class="topbar">
-                <h2 id="page-title">Dashboard</h2>
+                <h2 id="page-title">Knowledge Web</h2>
                 <div class="topbar-stats">
-                    <div class="stat-pill"><span class="stat-value" id="overall-mastery">--</span><span class="stat-label">Mastery</span></div>
-                    <div class="stat-pill"><span class="stat-value" id="streak">--</span><span class="stat-label">Streak</span></div>
-                    <div class="stat-pill"><span class="stat-value" id="hours">--</span><span class="stat-label">Hours</span></div>
+                    <div class="stat-pill"><span class="stat-value" id="stat-mastered">--</span><span class="stat-label">Mastered</span></div>
+                    <div class="stat-pill"><span class="stat-value" id="stat-frontier">--</span><span class="stat-label">Frontier</span></div>
+                    <div class="stat-pill"><span class="stat-value" id="stat-accuracy">--</span><span class="stat-label">Accuracy</span></div>
+                    <div class="stat-pill learner-pill" id="learner-pill">--</div>
                 </div>
             </div>
-            <section class="panel active" id="panel-dashboard">
+
+            <!-- Knowledge Web: 3D graph -->
+            <section class="panel active panel-web" id="panel-web">
+                <div id="web-canvas-wrap">
+                    <canvas id="web-canvas"></canvas>
+                    <div id="web-hint">drag to orbit · scroll to zoom · click a node</div>
+                </div>
+                <aside class="web-detail" id="web-detail">
+                    <h3>Select a concept</h3>
+                    <p class="hint">Click any node in the web to see what it depends on, what it relates to, and what learners confuse it with.</p>
+                </aside>
+            </section>
+
+            <section class="panel" id="panel-dashboard">
                 <div class="stat-row">
-                    <div class="stat-card"><div class="big-num" id="stat-courses">4</div><div class="label">Active Courses</div></div>
-                    <div class="stat-card"><div class="big-num" id="stat-topics">0</div><div class="label">Topics Covered</div></div>
-                    <div class="stat-card"><div class="big-num" id="stat-exercises">0</div><div class="label">Exercises Done</div></div>
-                    <div class="stat-card"><div class="big-num" id="stat-score">0%</div><div class="label">Avg Score</div></div>
+                    <div class="stat-card"><div class="big-num" id="stat-attempts">0</div><div class="label">Attempts</div></div>
+                    <div class="stat-card"><div class="big-num" id="stat-passed">0</div><div class="label">Passed</div></div>
+                    <div class="stat-card"><div class="big-num" id="stat-concepts">0</div><div class="label">Concepts</div></div>
+                    <div class="stat-card"><div class="big-num" id="stat-graph-edges">0</div><div class="label">Relations</div></div>
                 </div>
                 <div class="panel-grid">
-                    <div class="chart-card"><h3>Weekly Activity</h3><p class="chart-desc">Hours spent learning this week</p><div class="chart-container"><canvas id="activity-chart"></canvas></div></div>
-                    <div class="chart-card"><h3>Mastery Overview</h3><p class="chart-desc">Progress across all courses</p><div class="chart-container"><canvas id="overview-chart"></canvas></div></div>
+                    <div class="chart-card"><h3>Relation Types</h3><p class="chart-desc">How the web is connected</p><div class="chart-container"><canvas id="relations-chart"></canvas></div></div>
+                    <div class="chart-card"><h3>Attempts</h3><p class="chart-desc">Recent grading results</p><div class="chart-container"><canvas id="attempts-chart"></canvas></div></div>
+                </div>
+                <div class="chart-card proposals-card">
+                    <h3>What's next</h3>
+                    <p class="chart-desc">The frontier of your knowledge web</p>
+                    <div id="proposals-list"></div>
                 </div>
             </section>
-            <section class="panel" id="panel-progress">
-                <div class="panel-grid">
-                    <div class="chart-card"><h3>Learning Heatmap</h3><p class="chart-desc">Time on task by day</p><div class="chart-container"><canvas id="heatmap-chart"></canvas></div></div>
-                    <div class="chart-card"><h3>Topic Breakdown</h3><p class="chart-desc">Mastery by topic</p><div class="chart-container"><canvas id="topic-chart"></canvas></div></div>
-                </div>
-            </section>
-            <section class="panel" id="panel-knowledge">
-                <div class="chart-card"><h3>Knowledge Graph</h3><p class="chart-desc">Concept relationships</p><canvas id="knowledge-graph-canvas" style="width:100%;height:400px;background:var(--bg-primary);border-radius:var(--radius-sm);"></canvas></div>
-            </section>
+
             <section class="panel" id="panel-courses"><div id="courses-list"></div></section>
-            <section class="panel" id="panel-mastery">
-                <div class="chart-card"><h3>Real-Time Mastery Scores</h3><p class="chart-desc">Trend analysis</p><div class="chart-container"><canvas id="mastery-chart"></canvas></div></div>
-                <div class="chart-card" style="margin-top:20px;"><h3>Topic Mastery Breakdown</h3><div id="mastery-bars"></div></div>
+
+            <section class="panel" id="panel-practice">
+                <div class="practice-layout">
+                    <div class="practice-main">
+                        <div id="exercise-header"></div>
+                        <pre id="exercise-prompt" class="prompt-box"></pre>
+                        <textarea id="code-editor" spellcheck="false" placeholder="# write your solution here"></textarea>
+                        <div class="practice-actions">
+                            <button class="btn btn-primary" id="btn-submit">Run &amp; Grade</button>
+                            <button class="btn btn-secondary" id="btn-skip">Skip</button>
+                            <span id="practice-status"></span>
+                        </div>
+                    </div>
+                    <aside class="practice-side">
+                        <div class="chart-card"><h3>Starter code</h3><pre id="exercise-starter" class="prompt-box starter"></pre></div>
+                        <div class="chart-card"><h3>Hints</h3><div id="exercise-hints"></div></div>
+                        <div class="chart-card"><h3>Results</h3><div id="grade-results"></div></div>
+                    </aside>
+                </div>
             </section>
-            <section class="panel" id="panel-spaced"><div id="spaced-list"></div></section>
+
+            <section class="panel" id="panel-mastery">
+                <div class="chart-card"><h3>Skill Mastery</h3><p class="chart-desc">BKT posterior per skill</p><div id="mastery-bars"></div></div>
+            </section>
+
+            <section class="panel" id="panel-spaced"><div id="schedule-list"></div></section>
         </main>
     </div>
-    <script src="/static/js/app.js"></script>
+    <script type="module" src="/static/js/web.js"></script>
+    <script>
+    // Fallback guard: web.js is an ES module that imports three.js from a
+    // CDN. If the module cannot load (offline, CDN blocked) it never runs,
+    // so nothing would ever tell the learner why the page is dead.
+    window.__apexBooted = false;
+    setTimeout(function () {
+        if (window.__apexBooted || window.__apexWeb) return;
+        var banner = document.createElement('div');
+        banner.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:99;background:#1b2133;border:1px solid #f87171;border-radius:10px;padding:10px 18px;color:#e8ebf4;font-size:13px;max-width:80vw;text-align:center;';
+        banner.textContent = 'The dashboard frontend could not load (three.js comes from a CDN — check your connection). The CLI still works: try “apex dashboard” or “apex practice”.';
+        document.body.appendChild(banner);
+    }, 6000);
+    </script>
 </body>
 </html>

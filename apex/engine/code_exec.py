@@ -2,25 +2,25 @@
 
 Provides isolated execution of Python and JavaScript source via subprocess,
 test-case grading, and automated test-case generation from concept descriptions.
+
+Python execution delegates to :class:`apex.sandbox.LocalPythonRunner` (POSIX
+rlimits, env scrubbing, session isolation); JavaScript runs under Node with a
+V8 heap cap. Every path enforces a wall-clock timeout.
 """
 
 from __future__ import annotations
 
-import asyncio
 import os
-import platform
 import subprocess
 import tempfile
 import time
 from typing import Any
 
-# Optional: Protocol-based runner (imported lazily to keep existing API working
-# even if sandbox.py is not present).
-try:
+try:  # Optional: keeps the module importable if sandbox deps are missing.
     from apex.sandbox import Limits, LocalPythonRunner
-except ImportError:
-    Limits = None
-    LocalPythonRunner = None
+except ImportError:  # pragma: no cover
+    Limits = None  # type: ignore[assignment,misc]
+    LocalPythonRunner = None  # type: ignore[assignment,misc]
 
 # ---------------------------------------------------------------------------
 # Result type aliases
@@ -39,10 +39,7 @@ TestCase = dict[str, str]
 TestCaseResult = dict[str, Any]
 """Keys: description, passed (bool), expected, got, input."""
 
-#: Exit code reported when a run is killed for exceeding its timeout.
-#: Mirrors the coreutils convention for `timeout(1)`, so callers can
-#: distinguish "the program failed" from "the program never finished".
-TIMEOUT_EXIT_CODE = 124
+_TIMEOUT_EXIT_CODE = 124  # conventional timeout exit status
 
 
 # ---------------------------------------------------------------------------
@@ -69,14 +66,15 @@ def run_code(
         Defaults to 30.
     memory_limit_mb:
         Soft memory limit in MiB.  On POSIX this is enforced via
-        ``resource.setrlimit(RLIMIT_AS)`` through a wrapper script; on
-        Windows the parameter is accepted but not enforced (documented
-        limitation).
+        ``RLIMIT_AS`` in the child process; for JavaScript it maps to the
+        V8 ``--max-old-space-size`` flag.  On Windows the parameter is
+        accepted but not enforced (documented limitation).
 
     Returns
     -------
     ExecutionResult
-        ``{success, output, error, exit_code, execution_time}``.
+        ``{success, output, error, exit_code, execution_time}``.  A timed-out
+        run reports ``exit_code == 124``.
     """
     lang = language.lower()
     if lang not in ("python", "javascript"):
@@ -85,71 +83,47 @@ def run_code(
             exit_code=-1,
         )
 
-    # ---- Use the Protocol-based LocalPythonRunner when available ----
-    if LocalPythonRunner is not None and lang == "python":
+    if lang == "python":
+        return _run_python(source, timeout, memory_limit_mb)
+    return _run_javascript(source, timeout, memory_limit_mb)
+
+
+def _run_python(source: str, timeout: int, memory_limit_mb: int) -> ExecutionResult:
+    """Run Python *source* through the hardened LocalPythonRunner."""
+    if LocalPythonRunner is not None:
         limits = Limits(
             timeout_s=float(timeout),
             memory_mb=float(memory_limit_mb) if memory_limit_mb else None,
         )
         runner = LocalPythonRunner(limits=limits)
         try:
-            result = asyncio.run(runner.run(source))
-            if result.timed_out:
-                # The runner kills the child, so the exit code we get back
-                # is whatever the OS reports for a killed process (1 on
-                # Windows, -9 on POSIX). Passing that through would report a
-                # timeout as an ordinary crash, so map it to the documented
-                # timeout code instead.
-                return {
-                    "success": False,
-                    "output": result.stdout,
-                    "error": result.stderr or f"Execution timed out after {timeout}s.",
-                    "exit_code": TIMEOUT_EXIT_CODE,
-                    "execution_time": round(result.duration_ms / 1000, 4),
-                }
-            return {
-                "success": result.ok,
-                "output": result.stdout,
-                "error": result.stderr,
-                "exit_code": result.exit_code,
-                "execution_time": round(result.duration_ms / 1000, 4),
-            }
-        except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
-            return _failure(f"Runner error: {exc}", exit_code=-1)
+            import asyncio
 
-    cmd = _build_command(source, lang, memory_limit_mb)
-    t0 = time.perf_counter()
-    try:
-        proc = subprocess.run(
-            cmd,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            stdin=subprocess.DEVNULL,
-        )
-        elapsed = time.perf_counter() - t0
+            result = asyncio.run(runner.run(source))
+        except (RuntimeError, OSError, ValueError) as exc:
+            return _failure(f"Runner error: {exc}", exit_code=-1)
+        exit_code = _TIMEOUT_EXIT_CODE if result.timed_out else result.exit_code
         return {
-            "success": proc.returncode == 0,
-            "output": proc.stdout,
-            "error": proc.stderr,
-            "exit_code": proc.returncode,
-            "execution_time": round(elapsed, 4),
+            "success": result.ok,
+            "output": result.stdout,
+            "error": result.stderr,
+            "exit_code": exit_code,
+            "execution_time": round(result.duration_ms / 1000, 4),
         }
-    except subprocess.TimeoutExpired:
-        elapsed = time.perf_counter() - t0
-        return _failure(
-            f"Execution timed out after {timeout}s.",
-            exit_code=TIMEOUT_EXIT_CODE,
-            elapsed=elapsed,
-        )
-    except OSError as exc:
-        elapsed = time.perf_counter() - t0
-        return _failure(
-            f"Failed to spawn process: {exc}",
-            exit_code=-1,
-            elapsed=elapsed,
-        )
+
+    # Fallback path when the sandbox module is unavailable.
+    cmd = _write_and_build_cmd(source, ".py", [_python_exe()])
+    return _run_subprocess(cmd, stdin="", timeout=timeout)
+
+
+def _run_javascript(source: str, timeout: int, memory_limit_mb: int) -> ExecutionResult:
+    """Run JavaScript *source* under Node with a V8 heap cap (MiB)."""
+    cmd = _write_and_build_cmd(
+        source,
+        ".js",
+        ["node", f"--max-old-space-size={max(16, int(memory_limit_mb))}"],
+    )
+    return _run_subprocess(cmd, stdin="", timeout=timeout)
 
 
 # ---------------------------------------------------------------------------
@@ -222,7 +196,7 @@ def generate_test_cases(
     """Produce a starter set of test cases from a concept description.
 
     Uses keyword heuristics to generate simple, reviewable
-    ``{input, expected_output, description}`` triples.  Generated cases
+    ``{input, expected_output, description}`` triples. Generated cases
     should be checked and extended by the instructor before being used in
     high-stakes assessment.
 
@@ -397,32 +371,68 @@ def generate_test_cases(
 # ---------------------------------------------------------------------------
 
 
-def _build_command(
-    source: str,
-    lang: str,
-    memory_limit_mb: int,
-) -> list[str]:
-    """Return the argv list that runs *source* under the appropriate interpreter."""
-    if lang == "python":
-        py_exe = _python_exe()
-        wrapper = _python_wrapper_path()
-        fd, path = tempfile.mkstemp(suffix=".py", prefix="apex_run_")
+def _write_and_build_cmd(source: str, suffix: str, prefix_argv: list[str]) -> list[str]:
+    """Write *source* to a temp file and return the full argv to run it."""
+    fd, path = tempfile.mkstemp(suffix=suffix, prefix="apex_run_")
+    try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(source)
-        if wrapper and os.path.exists(wrapper):
-            return [py_exe, wrapper, str(memory_limit_mb), path]
-        return [py_exe, path]
+    except BaseException:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        raise
+    # The temp file is cleaned up by _run_subprocess after execution.
+    return [*prefix_argv, path]
 
-    # JavaScript — Node.js
-    fd, path = tempfile.mkstemp(suffix=".js", prefix="apex_run_")
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write(source)
-    os.close(fd)
-    return [
-        "node",
-        f"--max-old-space-size={memory_limit_mb * 1024}",
-        path,
-    ]
+
+def _run_subprocess(
+    cmd: list[str],
+    stdin: str,
+    timeout: float,
+) -> ExecutionResult:
+    """Run *cmd*, always cleaning up its trailing temp script path."""
+    script_path = cmd[-1] if cmd and os.path.isfile(cmd[-1]) else None
+    t0 = time.perf_counter()
+    try:
+        proc = subprocess.run(
+            cmd,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            stdin=subprocess.DEVNULL if not stdin else None,
+            input=stdin if stdin else None,
+        )
+        elapsed = time.perf_counter() - t0
+        return {
+            "success": proc.returncode == 0,
+            "output": proc.stdout,
+            "error": proc.stderr,
+            "exit_code": proc.returncode,
+            "execution_time": round(elapsed, 4),
+        }
+    except subprocess.TimeoutExpired:
+        elapsed = time.perf_counter() - t0
+        return _failure(
+            f"Execution timed out after {timeout:g}s.",
+            exit_code=_TIMEOUT_EXIT_CODE,
+            elapsed=elapsed,
+        )
+    except OSError as exc:
+        elapsed = time.perf_counter() - t0
+        return _failure(
+            f"Failed to spawn process: {exc}",
+            exit_code=-1,
+            elapsed=elapsed,
+        )
+    finally:
+        if script_path:
+            try:
+                os.unlink(script_path)
+            except OSError:
+                pass
 
 
 def _run_with_stdin(
@@ -430,35 +440,29 @@ def _run_with_stdin(
     stdin_input: str,
     language: str,
 ) -> ExecutionResult:
-    """Run *source* with *stdin_input* piped to stdin; no memory limit applied."""
+    """Run *source* with *stdin_input* piped in, under the hardened sandbox."""
     lang = language.lower()
-    py_exe = _python_exe()
 
-    fd, path = tempfile.mkstemp(suffix=".py" if lang == "python" else ".js", prefix="apex_grade_")
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write(source)
+    if lang == "python" and LocalPythonRunner is not None:
+        import asyncio
 
-    try:
-        proc = subprocess.run(
-            [py_exe, path] if lang == "python" else ["node", path],
-            check=False,
-            input=stdin_input,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        return {
-            "success": proc.returncode == 0,
-            "output": proc.stdout,
-            "error": proc.stderr,
-            "exit_code": proc.returncode,
-            "execution_time": 0.0,
-        }
-    finally:
+        runner = LocalPythonRunner(limits=Limits(timeout_s=30.0))
         try:
-            os.unlink(path)
-        except OSError:
-            pass
+            result = asyncio.run(runner.run(source, stdin_input))
+        except (RuntimeError, OSError, ValueError) as exc:
+            return _failure(f"Runner error: {exc}", exit_code=-1)
+        return {
+            "success": result.ok,
+            "output": result.stdout,
+            "error": result.stderr,
+            "exit_code": _TIMEOUT_EXIT_CODE if result.timed_out else result.exit_code,
+            "execution_time": round(result.duration_ms / 1000, 4),
+        }
+
+    suffix = ".py" if lang == "python" else ".js"
+    base = [_python_exe()] if lang == "python" else ["node"]
+    cmd = _write_and_build_cmd(source, suffix, base)
+    return _run_subprocess(cmd, stdin=stdin_input, timeout=30)
 
 
 def _failure(
@@ -481,41 +485,3 @@ def _python_exe() -> str:
     import sys as _sys
 
     return _sys.executable or "python"
-
-
-def _python_wrapper_path() -> str:
-    """Path to the RLIMIT_AS wrapper script (POSIX only; empty on Windows)."""
-    return _PYTHON_WRAPPER_PATH
-
-
-# ---------------------------------------------------------------------------
-# POSIX memory-limit wrapper  (created once at import time)
-# ---------------------------------------------------------------------------
-
-_PYTHON_WRAPPER_PATH: str = ""
-
-if platform.system() != "Windows":
-    _MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
-    _PYWRAP_PATH = os.path.join(_MODULE_DIR, "_memory_wrapper.py")
-    _WRAPPER_SRC = (
-        "import resource\n"
-        "import sys\n"
-        "import runpy\n"
-        "\n"
-        "def _set_memory_soft(limit_mb: int) -> None:\n"
-        "    soft = limit_mb * 1024 * 1024\n"
-        "    try:\n"
-        "        resource.setrlimit(resource.RLIMIT_AS, (soft, soft))\n"
-        "    except (ValueError, resource.error):\n"
-        "        pass  # leave default if we can't set it\n"
-        "\n"
-        "if __name__ == '__main__':\n"
-        "    _set_memory_soft(int(sys.argv[1]))\n"
-        "    runpy.run_path(sys.argv[2], run_name='__apex__')\n"
-    )
-    try:
-        with open(_PYWRAP_PATH, "w", encoding="utf-8") as fh:
-            fh.write(_WRAPPER_SRC)
-        _PYTHON_WRAPPER_PATH = _PYWRAP_PATH
-    except OSError:
-        _PYTHON_WRAPPER_PATH = ""

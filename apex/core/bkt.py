@@ -196,10 +196,12 @@ def apply_attempt(
             p_k = update(p_k, correct, params)
         result[skill] = p_k
 
-    # Seed any exercise skills not yet in mastery with p_init.
+    # Skills never seen before start at the p_init prior; the current
+    # observation is then applied on top of it, so a correct first answer
+    # raises the posterior and a wrong one lowers it (standard BKT).
     for skill in exercise_skills:
         if skill not in result:
-            result[skill] = params.p_init
+            result[skill] = update(params.p_init, correct, params)
 
     return result
 
