@@ -395,6 +395,82 @@ body {
 .due-date { font-size: 12px; color: var(--text-muted); }
 .interval { font-size: 12px; color: var(--accent-bright); font-weight: 600; margin: 0 14px; }
 
+/* ── Intent board (My Path) ─────────────────────────────── */
+
+.intent-board {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+}
+
+.intent-col {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px;
+    min-height: 280px;
+}
+
+.intent-col h3 {
+    margin: 0 0 12px;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.intent-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 7px;
+    font-size: 12px;
+}
+
+.intent-icon.want { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
+.intent-icon.learning { background: rgba(34, 211, 238, 0.15); color: #22d3ee; }
+.intent-icon.learned { background: rgba(52, 211, 153, 0.15); color: #34d399; }
+
+.intent-list { display: flex; flex-direction: column; gap: 10px; }
+
+.intent-card {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+}
+
+.intent-card.concept { border-style: dashed; }
+
+.intent-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.intent-name { font-weight: 600; color: var(--text-primary); font-size: 14px; }
+.intent-id { font-size: 11px; color: var(--text-muted); }
+
+.intent-card .mastery-bar { margin-bottom: 8px; }
+.intent-card .mastery-bar > i.earned { background: var(--success); }
+
+.intent-meta { font-size: 11.5px; color: var(--text-muted); margin-bottom: 10px; }
+
+.intent-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.btn-sm { font-size: 11.5px; padding: 5px 10px; border-radius: 7px; }
+
+@media (max-width: 1100px) {
+    .intent-board { grid-template-columns: 1fr; }
+}
+
 /* ── Scrollbars ──────────────────────────────────────────── */
 
 ::-webkit-scrollbar { width: 9px; height: 9px; }

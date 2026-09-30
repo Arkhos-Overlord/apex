@@ -95,12 +95,33 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif path == "/api/practice/next":
             ex = self.session.next_exercise()
             self._send_json({"exercise": ex.public() if ex else None})
+        elif path == "/api/intents":
+            self._send_json(self.session.intent_board())
         else:
             self._send_json({"error": "not found", "path": path}, status=404)
 
     def do_POST(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
         path, _, query = self.path.partition("?")
         path = path.rstrip("/") or "/"
+        if path == "/api/intents":
+            length = int(self.headers.get("Content-Length") or 0)
+            try:
+                body = json.loads(self.rfile.read(length) or b"{}")
+            except json.JSONDecodeError:
+                self._send_json({"detail": "request body is not valid JSON"}, status=400)
+                return
+            concept_id = str(body.get("concept_id") or "")
+            state = str(body.get("state") or "")
+            try:
+                result = self.session.set_learning_state(concept_id, state)
+            except KeyError:
+                self._send_json({"detail": f"unknown concept '{concept_id}'"}, status=404)
+                return
+            except ValueError as exc:
+                self._send_json({"detail": str(exc)}, status=422)
+                return
+            self._send_json(result)
+            return
         if path != "/api/practice/submit":
             self._send_json({"error": "not found", "path": path}, status=404)
             return

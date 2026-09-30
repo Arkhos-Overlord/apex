@@ -25,7 +25,7 @@ from apex.cli.dashboard import DEFAULT_PORT, serve_in_background
 from apex.core.bkt import MASTERED
 from apex.graph import Relation
 from apex.session import LearningSession
-from apex.store import Store, StoreError
+from apex.store import LEARNING_STATES, Store, StoreError
 from apex.teachers import get_teacher, instruct, list_teachers
 
 console = Console()
@@ -339,6 +339,93 @@ def _match_concept(session: LearningSession, topic: str) -> str | None:
         if needle in skill.name.lower() or needle in concept_id:
             return concept_id
     return None
+
+
+# ── learn: declare intent ────────────────────────────────────────────────
+
+
+@click.group(name="learn")
+def learn() -> None:
+    """Tell the engine what you want to learn.
+
+    Declaring intent is not decoration: 'learning' a topic raises its BKT
+    prior, puts its exercises first in every practice session, and lets a
+    proven mastery promote it to 'learned' automatically.
+    """
+
+
+@learn.command(name="want")
+@click.argument("topic", required=True)
+def learn_want(topic: str) -> None:
+    """Add TOPIC to your want-to-learn list."""
+    _set_intent(topic, "wantToLearn")
+
+
+@learn.command(name="learning")
+@click.argument("topic", required=True)
+def learn_learning(topic: str) -> None:
+    """Commit to learning TOPIC: it jumps the practice queue."""
+    _set_intent(topic, "learning")
+
+
+@learn.command(name="learned")
+@click.argument("topic", required=True)
+def learn_learned(topic: str) -> None:
+    """Mark TOPIC as learned (a claim; practice still proves it)."""
+    _set_intent(topic, "learned")
+
+
+@learn.command(name="archive")
+@click.argument("topic", required=True)
+def learn_archive(topic: str) -> None:
+    """Park TOPIC: hidden from proposals and practice selection."""
+    _set_intent(topic, "archived")
+
+
+def _set_intent(topic: str, state: str) -> None:
+    """Shared body of the learn subcommands."""
+    session = _session(load_config())
+    concept_id = _match_concept(session, topic)
+    if concept_id is None:
+        known = ", ".join(sorted(session.library.skills)[:12])
+        raise click.ClickException(
+            f"No concept matches '{topic}'. Try 'apex graph' — some known ids: {known}…"
+        )
+    result = session.set_learning_state(concept_id, state)
+    node = session.library.graph.concepts[concept_id]
+    label = {
+        "wantToLearn": "want to learn",
+        "learning": "now learning",
+        "learned": "marked learned",
+        "archived": "archived",
+    }[state]
+    console.print(
+        f"[green]✓[/green] {node.name} — {label}. "
+        f"mastery prior [bold]{round(result['mastery'] * 100)}%[/bold]"
+    )
+    if state == "learning":
+        console.print("[dim]Its exercises now come first in 'apex practice'.[/dim]")
+
+
+@learn.command(name="board")
+def learn_board() -> None:
+    """Show your want-to-learn / learning / learned board."""
+    session = _session(load_config())
+    board = session.intent_board()
+    icons = {"wantToLearn": "☆", "learning": "→", "learned": "✓"}
+    styles = {"wantToLearn": "yellow", "learning": "cyan", "learned": "green"}
+    for bucket in ("wantToLearn", "learning", "learned"):
+        items = board[bucket]
+        console.print(f"\n[bold {styles[bucket]}]{icons[bucket]} {bucket}[/bold {styles[bucket]}]")
+        if not items:
+            console.print("  [dim](nothing yet — see 'apex learn --help')[/dim]")
+        for item in items:
+            suffix = "" if item["earned"] or bucket != "learned" else " [dim](claimed, not yet proven)[/dim]"
+            console.print(
+                f"  {item['name']} [dim]({item['id']})[/dim] — "
+                f"{round(item['mastery'] * 100)}%{suffix}"
+            )
+    console.print()
 
 
 # ── practice ─────────────────────────────────────────────────────────────

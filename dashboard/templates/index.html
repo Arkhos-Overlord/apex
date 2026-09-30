@@ -26,6 +26,7 @@
             <nav>
                 <a data-tab="web" class="active"><span class="nav-icon">🕸</span><span>Knowledge Web</span></a>
                 <a data-tab="dashboard"><span class="nav-icon">📊</span><span>Dashboard</span></a>
+                <a data-tab="intents"><span class="nav-icon">🧭</span><span>My Path</span></a>
                 <a data-tab="courses"><span class="nav-icon">📚</span><span>Courses</span></a>
             </nav>
             <div class="section-label">Practice</div>
@@ -80,6 +81,28 @@
                     <p class="chart-desc">The frontier of your knowledge web</p>
                     <div id="proposals-list"></div>
                 </div>
+            </section>
+
+            <section class="panel" id="panel-intents">
+                <div class="intent-board">
+                    <div class="intent-col" id="intent-want">
+                        <h3><span class="intent-icon want">☆</span> Want to learn</h3>
+                        <div class="intent-list"></div>
+                    </div>
+                    <div class="intent-col" id="intent-learning">
+                        <h3><span class="intent-icon learning">→</span> Learning</h3>
+                        <div class="intent-list"></div>
+                    </div>
+                    <div class="intent-col" id="intent-learned">
+                        <h3><span class="intent-icon learned">✓</span> Learned</h3>
+                        <div class="intent-list"></div>
+                    </div>
+                </div>
+                <p class="hint" style="margin-top:14px">
+                    Declaring intent is real signal: “learning” a topic raises its mastery prior and moves its
+                    exercises to the front of Practice; when BKT proves mastery, the card promotes itself to
+                    Learned. Archive hides a topic from practice and proposals.
+                </p>
             </section>
 
             <section class="panel" id="panel-courses"><div id="courses-list"></div></section>

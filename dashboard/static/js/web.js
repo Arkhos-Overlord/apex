@@ -37,6 +37,7 @@ const COLORS = {
     unlocked: 0x818cf8,
     locked: 0x3d4459,
     concept: 0xf59e0b,
+    intent: 0x22d3ee, // declared intent (wantToLearn/learning) — distinct from earned green
     edge: 0x4c5a7a,
 };
 
@@ -72,6 +73,7 @@ function el(tag, className, text) {
 const TITLES = {
     web: "Knowledge Web",
     dashboard: "Dashboard",
+    intents: "My Path",
     courses: "Courses",
     practice: "Practice",
     mastery: "Mastery",
@@ -94,6 +96,7 @@ function loadTab(tab) {
     try {
         if (tab === "web") renderWeb();
         if (tab === "dashboard") renderDashboard();
+        if (tab === "intents") renderIntents();
         if (tab === "courses") renderCourses();
         if (tab === "practice") renderPractice();
         if (tab === "mastery") renderMastery();
@@ -276,6 +279,10 @@ function makeLabel(text, color) {
 
 function nodeColor(n) {
     if (n.mastered) return COLORS.mastered;
+    // Declared intent beats generic state colouring: the learner said
+    // something about this node, so the web should show it even while the
+    // mastery is still at the seeded prior.
+    if (n.intent === "learning" || n.intent === "wantToLearn") return COLORS.intent;
     if (!n.has_exercises) return COLORS.concept;
     if (n.unlocked) return COLORS.unlocked;
     return COLORS.locked;
@@ -433,6 +440,129 @@ function showNodeDetail(n) {
         group.appendChild(row);
         panel.appendChild(group);
     }
+
+    panel.appendChild(intentActionsFor(n));
+}
+
+/* Declare-intent controls in the web detail panel. Mirrors the board's
+ * transitions; a successful POST recolours the node in place. */
+function intentActionsFor(n) {
+    const wrap = el("div", "rel-group");
+    wrap.appendChild(el("div", "rel-label", "my path"));
+    const current = n.intent;
+    const row = el("div", "intent-actions");
+    const options = [
+        ["wantToLearn", "☆ Want", current === "wantToLearn"],
+        ["learning", "→ Learning", current === "learning"],
+        ["learned", "✓ Learned", current === "learned"],
+    ];
+    for (const [state, label, active] of options) {
+        const btn = el("button", "btn btn-sm" + (active ? " btn-primary" : ""), label + (active ? " ✓" : ""));
+        if (active) { btn.disabled = true; }
+        btn.onclick = async () => {
+            btn.disabled = true;
+            try {
+                await api("/api/intents", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ concept_id: n.id, state }),
+                });
+                n.intent = state;
+                const sim = STATE.byId.get(n.id);
+                if (sim) {
+                    const mesh = STATE.nodeMeshes.find((m) => m.userData.node.id === n.id);
+                    if (mesh) {
+                        const color = nodeColor(n);
+                        mesh.material.color.setHex(color);
+                        mesh.material.emissive.setHex(color);
+                    }
+                }
+                refreshStats();
+            } catch (e) {
+                console.error("intent update failed:", e);
+            } finally {
+                btn.disabled = false;
+            }
+        };
+        row.appendChild(btn);
+    }
+    wrap.appendChild(row);
+    return wrap;
+}
+
+/* ════════════════════════════════════════════════════════ */
+/* Intent board (My Path)                                   */
+/* ════════════════════════════════════════════════════════ */
+
+async function renderIntents() {
+    const board = await api("/api/intents");
+    for (const bucket of ["wantToLearn", "learning", "learned"]) {
+        const holder = document.querySelector(`#intent-${bucket === "wantToLearn" ? "want" : bucket} .intent-list`);
+        if (!holder) continue;
+        holder.textContent = "";
+        const items = board[bucket] || [];
+        if (!items.length) {
+            holder.appendChild(el("div", "hint", bucket === "learned" ? "Nothing proven yet." : "Nothing declared yet."));
+            continue;
+        }
+        for (const item of items) holder.appendChild(intentCard(item, bucket));
+    }
+}
+
+function intentCard(item, bucket) {
+    const card = el("div", "intent-card");
+    const head = el("div", "intent-head");
+    head.appendChild(el("span", "intent-name", item.name));
+    head.appendChild(el("span", "intent-id", item.id));
+    card.appendChild(head);
+    if (item.kind === "concept") card.classList.add("concept");
+
+    const pct = Math.round((item.mastery || 0) * 100);
+    const bar = el("div", "mastery-bar");
+    const fill = el("i");
+    fill.style.width = pct + "%";
+    if (item.earned) fill.classList.add("earned");
+    bar.appendChild(fill);
+    card.appendChild(bar);
+
+    const meta = el("div", "intent-meta");
+    const bits = [`${pct}% mastery`];
+    if (bucket === "learned" && !item.earned) bits.push("claimed, not yet proven");
+    if (bucket === "learning" && item.earned) bits.push("proven ✓");
+    bits.push(item.has_exercises ? "has exercises" : "read-only node");
+    meta.textContent = bits.join(" · ");
+    card.appendChild(meta);
+
+    const actions = el("div", "intent-actions");
+    const transitions = {
+        wantToLearn: [
+            ["Start learning", "learning", "btn-primary"],
+            ["Archive", "archived", ""],
+        ],
+        learning: [["Mark learned", "learned", ""]],
+        learned: [["Relearn", "learning", ""]],
+    };
+    for (const [label, state, cls] of transitions[bucket] || []) {
+        const btn = el("button", `btn btn-sm ${cls}`.trim(), label);
+        btn.onclick = async () => {
+            btn.disabled = true;
+            try {
+                await api("/api/intents", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ concept_id: item.id, state }),
+                });
+                await renderIntents();
+                await refreshStats();
+            } catch (e) {
+                btn.disabled = false;
+                console.error("intent update failed:", e);
+            }
+        };
+        actions.appendChild(btn);
+    }
+    card.appendChild(actions);
+    return card;
 }
 
 /* ════════════════════════════════════════════════════════ */

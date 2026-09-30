@@ -2,10 +2,10 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue)](https://python.org)
-[![Tests](https://img.shields.io/badge/Tests-384%20passed%20%2B%201%20skipped-brightgreen)](https://github.com/Arkhos-Overlord/apex/actions)
+[![Tests](https://img.shields.io/badge/Tests-405%20passed%20%2B%201%20skipped-brightgreen)](https://github.com/Arkhos-Overlord/apex/actions)
 [![Lint](https://img.shields.io/badge/Lint-Clean-success)](https://github.com/Arkhos-Overlord/apex/actions)
 
-> A standalone teaching platform that turns any AI agent into a personalized instructor — for any subject, not just programming. Python and JavaScript grade in the sandbox; math and Spanish grade statically against answer keys, all through the same adaptive engine. Build courses, track mastery, learn with adaptive difficulty — from the terminal or a browser.
+> A standalone teaching platform that turns any AI agent into a personalized instructor — for any subject, not just programming. Declare what you want to learn and the engine steers around you: intent raises mastery priors, reorders practice, and a proven mastery promotes the topic automatically. Python and JavaScript grade in the sandbox; math and Spanish grade statically — all through the same adaptive engine, from the terminal or a browser.
 
 ## Why APEX?
 
@@ -26,6 +26,7 @@ APEX is **standalone**. It works with any AI agent, any model, any provider. You
 
 ### 🎓 Core Engine
 - **Course model** — structured curriculum with chapters, lessons, exercises
+- **Learner intent, wired to mastery** — `apex learn want/learning/learned/archive <topic>` builds a personal path: declaring intent raises the BKT prior, `learning` topics jump the practice queue, archived topics vanish from it, and when graded evidence crosses the mastery threshold the topic promotes itself to `learned` — the engine proves your claims, not just records them
 - **Four exercise kinds** — `code` (sandbox-graded, Python or JavaScript), `mcq`, `recall` (accent/case-insensitive short answer), and `numeric` (tolerance-based, accepts fractions and thousand separators) — so non-programming subjects run on the same adaptive pipeline
 - **Learner tracking** — mastery scores (0-100), attempt history, confidence levels, evidence-based progress
 - **Adaptive difficulty** — Elo-style rating adjusts problem difficulty based on performance in real-time
@@ -91,6 +92,12 @@ apex teach python
 
 # Show course details
 apex course intro-python
+
+# Tell the engine what you want to learn — it steers everything
+apex learn want spanish
+apex learn learning "order of operations"   # its exercises now come first
+apex learn board                            # your want / learning / learned path
+apex learn archive wifi                     # hide a topic from practice
 
 # Adaptive practice session
 apex practice

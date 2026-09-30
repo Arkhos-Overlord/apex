@@ -489,6 +489,69 @@ def s11_cli_output_renders(ctx: Ctx) -> tuple[bool, str]:
     return True, "progress, courses, graph and course all render visible meters"
 
 
+# ── S12: learner intent steers the engine ───────────────────────────────
+
+
+def s12_intent_steers_engine(ctx: Ctx) -> tuple[bool, str]:
+    """Intent is engine signal: prior seed, selection priority, promotion.
+
+    The learn-anything intent model (wantToLearn/learning/learned) only
+    matters here because it is wired into mastery tracing. This check
+    walks the whole lifecycle with the real session and the real CLI.
+    """
+    facts: list[str] = []
+    session = LearningSession(
+        "intent-evaluator", library=ctx.library, store=Store(str(ctx.tmp / "intent.db"))
+    )
+
+    # 1. Declaring 'learning' moves the prior and jumps the queue.
+    before = session.mastery()["order-of-operations"]
+    session.set_learning_state("order-of-operations", "learning")
+    after = session.mastery()["order-of-operations"]
+    if not after > before:
+        return False, f"declaring 'learning' did not raise the prior ({before} -> {after})"
+    facts.append(f"prior {before:.2f} -> {after:.2f}")
+
+    chosen = session.next_exercise()
+    if chosen is None or "order-of-operations" not in chosen.skills:
+        return False, f"learning intent did not steer selection (got {chosen and chosen.id})"
+    facts.append(f"selection -> {chosen.id}")
+
+    # 2. Archive hides material from selection.
+    for skill in ("spanish-greetings", "spanish-numbers", "spanish-verbs", "spanish-family"):
+        session.set_learning_state(skill, "archived")
+    for _ in range(8):
+        ex = session.next_exercise()
+        if ex is None:
+            break
+        if set(ex.skills) & {"spanish-greetings", "spanish-numbers", "spanish-verbs", "spanish-family"}:
+            return False, f"archived skill {ex.skills} was still selected"
+    facts.append("archive respected")
+
+    # 3. Proof promotes: hammer the learning skill until BKT crosses 0.95.
+    ex = next(e for e in session.library.exercises.values() if "order-of-operations" in e.skills)
+    report = None
+    for _ in range(15):
+        report = session.submit(ex.answer, ex)
+        if report.mastery_after["order-of-operations"] >= 0.95:
+            break
+    if report is None or report.mastery_after["order-of-operations"] < 0.95:
+        return False, "could not reach mastery on the declared skill"
+    if "order-of-operations" not in report.promoted:
+        return False, "crossing the threshold did not promote learning -> learned"
+    facts.append("promoted on proof")
+
+    # 4. The CLI sees the same truth.
+    result = ctx.cli("learn", "board")
+    if result.returncode != 0:
+        return False, f"apex learn board failed: {result.stderr.strip()[:120]}"
+    if "learned" not in result.stdout:
+        return False, "board does not show the learned bucket"
+    facts.append("CLI board renders")
+
+    return True, "; ".join(facts)
+
+
 # ── the spec ─────────────────────────────────────────────────────────────
 
 SPEC: list[Criterion] = [
@@ -514,6 +577,8 @@ SPEC: list[Criterion] = [
               s10_suite_is_green),
     Criterion("S11", "CLI output actually renders; no cell is silently blank",
               s11_cli_output_renders),
+    Criterion("S12", "Learner intent steers the engine, and proof promotes it",
+              s12_intent_steers_engine),
 ]
 
 

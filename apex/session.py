@@ -27,9 +27,26 @@ from apex.core.learner import LearnerState
 from apex.engine.code_exec import grade_code
 from apex.engine.grading import grade_static
 from apex.graph import Relation
-from apex.store import Store
+from apex.store import LEARNING_STATES, Store
 
 DEFAULT_LEARNER = "default"
+
+#: Priors seeded when a learner *declares* intent on a concept they have
+#: never attempted. Declaring "I want to learn this" is evidence — weaker
+#: than passing a test, stronger than silence — so it moves the BKT prior
+#: a little above :data:`~apex.core.bkt.DEFAULT.p_init`, and committing to
+#: actively learning it moves it further. The engine's own updates then
+#: take over from whatever evidence arrives.
+INTENT_PRIORS: dict[str, float] = {
+    "wantToLearn": 0.30,
+    "learning": 0.40,
+    # ``learned`` is honoured, not seeded: the learner asserts it, and the
+    # CLI/dashboard command records it — but a claimed mastery never
+    # becomes exercise-eligible mastery. Gating still requires the real
+    # BKT posterior to cross the threshold.
+}
+#: Concepts actively being learned get first pick in selection — the flag
+#: is a sort key, not a bonus (see :meth:`LearningSession.next_exercise`).
 
 
 def default_content_root() -> Path:
@@ -103,6 +120,8 @@ class AttemptReport:
     duration_s: float = 0.0
     mastery_before: dict[str, float] = field(default_factory=dict)
     mastery_after: dict[str, float] = field(default_factory=dict)
+    promoted: list[str] = field(default_factory=list)
+    """Skills whose ``learning`` intent became ``learned`` this attempt."""
 
     @property
     def newly_mastered(self) -> list[str]:
@@ -218,6 +237,11 @@ class LearningSession:
         Concepts with no record are included at the BKT prior, so callers
         get a complete picture rather than having to guess which exist.
         """
+        """Every known concept's mastery probability, in [0, 1].
+
+        Concepts with no record are included at the BKT prior, so callers
+        get a complete picture rather than having to guess which exist.
+        """
         stored = self.store.get_mastery(self.learner)
         return {cid: stored.get(cid, DEFAULT.p_init) for cid in self.library.skills}
 
@@ -232,6 +256,118 @@ class LearningSession:
     def solved_ids(self) -> set[str]:
         """Exercise ids this learner has passed at least once."""
         return {row["exercise"] for row in self.store.solved(self.learner)}
+
+    # ── learning intent ──────────────────────────────────────────────
+
+    def set_learning_state(self, concept_id: str, state: str) -> dict[str, Any]:
+        """Declare what the learner wants to learn / is learning / has learned.
+
+        This is the learner steering the engine, not the engine steering
+        the learner — the learn-anything intent model, wired into mastery
+        tracing. Three things happen:
+
+        1. The declaration is persisted.
+        2. For an unattempted concept, the declaration seeds the BKT
+           prior (:data:`INTENT_PRIORS`) — declaring interest is weak
+           evidence of knowledge, but it is evidence.
+        3. Promotions to ``learning`` (and ``learned``) bump the mastery
+           of *neighbouring* concepts slightly, because intent on a node
+           implies willingness to reach its prerequisites.
+
+        Moving to ``learned`` does **not** fabricate mastery: gating keeps
+        requiring the real BKT posterior to cross the threshold.
+
+        Args:
+            concept_id: Concept to set the state for. Must exist.
+            state: One of :data:`~apex.store.LEARNING_STATES`.
+
+        Returns:
+            ``{"concept", "state", "mastery"}`` after the update.
+
+        Raises:
+            KeyError: If the concept is not in the knowledge web.
+            StoreError: On an invalid state value.
+        """
+        graph = self.library.graph
+        if concept_id not in graph.concepts:
+            raise KeyError(f"unknown concept '{concept_id}'")
+        if state not in LEARNING_STATES:
+            raise ValueError(f"invalid learning state '{state}'")
+
+        mastery = self.mastery()
+
+        def _seed(ids: set[str], prior: float) -> dict[str, float]:
+            """Set unseen concepts to *prior* without a (dis)confirmation update.
+
+            Deliberately *not* ``apply_attempt``: that models an
+            observation, and a declaration is not an observation of
+            ability — treating ``score=0.4`` as evidence would run the
+            "incorrect" branch and drag mastery *down*. A seed just says
+            "act as if this is slightly more plausible than the cold
+            prior", and the learner's real attempts move it from there.
+            """
+            return {
+                cid: max(prior, p) if cid in ids and p <= DEFAULT.p_init else p
+                for cid, p in mastery.items()
+            }
+
+        if state in INTENT_PRIORS:
+            mastery = _seed({concept_id}, INTENT_PRIORS[state])
+
+        # Intent radiates one hop: adjacent concepts get a nudge, so the
+        # neighbourhood of a declared interest becomes the natural next
+        # frontier rather than a random corner of the web.
+        if state in ("learning", "learned"):
+            mastery = _seed(
+                set(graph.neighbourhoods(concept_id, 1)) - {concept_id},
+                INTENT_PRIORS["wantToLearn"],
+            )
+
+        self.store.set_mastery(self.learner, mastery)
+        self.store.set_learning_state(self.learner, concept_id, state)
+        return {"concept": concept_id, "state": state, "mastery": round(mastery.get(concept_id, DEFAULT.p_init), 4)}
+
+    def learning_states(self) -> dict[str, str]:
+        """Declared intents: concept id -> state, excluding archived."""
+        return self.store.learning_states(self.learner)
+
+    def intent_board(self) -> dict[str, list[dict[str, Any]]]:
+        """The three intent buckets with mastery attached, for CLI/dashboard.
+
+        ``learned`` is split into the *declared* set and the *earned* set
+        (BKT posterior over the threshold) — the gap between claiming and
+        proving is the whole point of tracking mastery at all.
+        """
+        states = self.learning_states()
+        mastery = self.mastery()
+        board: dict[str, list[dict[str, Any]]] = {
+            "wantToLearn": [],
+            "learning": [],
+            "learned": [],
+        }
+        for cid, state in states.items():
+            node = self.library.graph.concepts.get(cid)
+            if node is None:
+                continue
+            p = mastery.get(cid, DEFAULT.p_init)
+            if state in board:
+                board[state].append(
+                    {
+                        "id": cid,
+                        "name": node.name,
+                        "kind": node.kind,
+                        "mastery": round(p, 4),
+                        "earned": p >= MASTERED,
+                        "has_exercises": bool(self.library.exercises_for_skill(cid)),
+                    }
+                )
+        for bucket in board.values():
+            bucket.sort(key=lambda item: -item["mastery"])
+        return board
+
+    def archived_ids(self) -> set[str]:
+        """Concepts the learner has parked; excluded from proposals/pool."""
+        return self.store.archived_concepts(self.learner)
 
     # ── the web ──────────────────────────────────────────────────────────
 
@@ -248,6 +384,7 @@ class LearningSession:
         frontier = set(self.library.frontier(mastery))
         graph = self.library.graph
         verdicts = self.store.edge_verdicts(self.learner)
+        states = self.learning_states()
 
         nodes: list[dict[str, Any]] = []
         for concept in graph.concepts.values():
@@ -261,6 +398,7 @@ class LearningSession:
                     "mastered": concept.id in mastered,
                     "unlocked": concept.id in frontier,
                     "has_exercises": bool(self.library.exercises_for_skill(concept.id)),
+                    "intent": states.get(concept.id),
                 }
             )
 
@@ -401,6 +539,10 @@ class LearningSession:
         mastery = self.mastery()
         solved = self.solved_ids()
         skip = exclude or set()
+        parked = self.archived_ids()
+        learning = {
+            cid for cid, s in self.learning_states().items() if s == "learning"
+        }
         pool = (
             self.library.course_exercises(course_id)
             if course_id
@@ -409,8 +551,20 @@ class LearningSession:
         if not pool:
             return None
 
+        # "learning" intent outranks the raw mastery scan: an exercise for a
+        # skill the learner declared they are learning beats an equally weak
+        # skill they never mentioned, so the flag is the *primary* sort key
+        # (0 beats 1), not a sub-1.0 bonus that an alphabetical id tiebreak
+        # can override. Archived skills are dropped entirely — parking a
+        # topic must actually park it.
         def weakest(ex: Exercise) -> float:
             return min(mastery.get(skill, DEFAULT.p_init) for skill in ex.skills)
+
+        def priority(ex: Exercise) -> tuple[int, float, int, str]:
+            not_learning = 0 if learning & set(ex.skills) else 1
+            return (not_learning, weakest(ex), ex.difficulty, ex.id)
+
+        pool = [ex for ex in pool if not (parked & set(ex.skills))]
 
         # Every skill the exercise assesses must be unlocked, not just the
         # first one. Checking only skills[0] served py-count-vowels -- which
@@ -431,14 +585,14 @@ class LearningSession:
             fresh = [ex for ex in pool if ex.id not in skip]
             if not fresh:
                 return None
-            return min(fresh, key=lambda ex: (weakest(ex), ex.difficulty, ex.id))
+            return min(fresh, key=priority)
 
         unseen = [ex for ex in eligible if ex.id not in solved and ex.id not in skip]
         if unseen:
-            return min(unseen, key=lambda ex: (weakest(ex), ex.difficulty, ex.id))
+            return min(unseen, key=priority)
         unserved = [ex for ex in eligible if ex.id not in skip]
         if unserved:
-            return min(unserved, key=lambda ex: (weakest(ex), ex.difficulty, ex.id))
+            return min(unserved, key=priority)
         # Everything eligible has been served this run: stop rather than
         # repeat, which is what the exclude contract promises.
         return None
@@ -492,6 +646,20 @@ class LearningSession:
         for skill in exercise.skills:
             self.adaptive.update_model(LearnerState(), skill, score)
 
+        # Proof completes intent: a skill declared ``learning`` whose BKT
+        # posterior just crossed the threshold is now ``learned``. The
+        # learner said they were learning it; the engine records that the
+        # evidence arrived. Nothing here fabricates mastery — the flag
+        # follows the posterior, never leads it.
+        promoted = [
+            skill
+            for skill in exercise.skills
+            if after.get(skill, 0.0) >= MASTERED
+            and self.learning_states().get(skill) == "learning"
+        ]
+        for skill in promoted:
+            self.store.set_learning_state(self.learner, skill, "learned")
+
         return AttemptReport(
             exercise=exercise,
             passed=passed,
@@ -502,6 +670,7 @@ class LearningSession:
             duration_s=duration,
             mastery_before=before,
             mastery_after=after,
+            promoted=sorted(promoted),
         )
 
     # ── reporting ────────────────────────────────────────────────────────

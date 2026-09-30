@@ -18,6 +18,10 @@ from pathlib import Path
 from typing import Any
 
 PRECISION = 6
+
+#: Every value the ``learning_states.state`` column accepts.
+LEARNING_STATES = ("wantToLearn", "learning", "learned", "archived")
+_LEARNING_STATES = frozenset(LEARNING_STATES)
 """Decimal places preserved for mastery probabilities."""
 
 
@@ -148,6 +152,14 @@ class Store:
                     accepted  INTEGER NOT NULL,
                     ts        TEXT NOT NULL,
                     PRIMARY KEY (learner, source, target, relation)
+                );
+                CREATE TABLE IF NOT EXISTS learning_states (
+                    learner   TEXT NOT NULL,
+                    concept   TEXT NOT NULL,
+                    state     TEXT NOT NULL CHECK (state IN
+                              ('wantToLearn', 'learning', 'learned', 'archived')),
+                    ts        TEXT NOT NULL,
+                    PRIMARY KEY (learner, concept)
                 );
                 """
             )
@@ -396,6 +408,54 @@ class Store:
     def rejected_relations(self, learner: str) -> set[tuple[str, str, str]]:
         """Edges the learner explicitly refused."""
         return {k for k, v in self.edge_verdicts(learner).items() if not v}
+
+    # ── learning intent ─────────────────────────────────────────────────
+
+    def set_learning_state(self, learner: str, concept: str, state: str) -> None:
+        """Record that *learner* wants to learn / is learning / has learned *concept*.
+
+        ``archived`` is the explicit opt-out: it suppresses the topic from
+        proposals and selection without pretending the learner never said
+        anything.
+
+        Raises:
+            StoreError: In read-only mode or on an invalid state value.
+        """
+        if state not in _LEARNING_STATES:
+            raise StoreError(f"invalid learning state '{state}'")
+        if self._readonly:
+            raise StoreError("Cannot write in read-only mode")
+        ts = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
+        with self._session() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO learning_states (learner, concept, state, ts)
+                VALUES (?, ?, ?, ?)
+                """,
+                (learner, concept, state, ts),
+            )
+
+    def learning_states(self, learner: str) -> dict[str, str]:
+        """The learner's declared intents, keyed by concept id.
+
+        ``archived`` rows are excluded — they are a negative signal, not a
+        bucket the learner browses.
+        """
+        with self._session() as conn:
+            rows = conn.execute(
+                "SELECT concept, state FROM learning_states WHERE learner = ?",
+                (learner,),
+            ).fetchall()
+        return {r[0]: r[1] for r in rows if r[1] != "archived"}
+
+    def archived_concepts(self, learner: str) -> set[str]:
+        """Concepts the learner has explicitly parked."""
+        with self._session() as conn:
+            rows = conn.execute(
+                "SELECT concept FROM learning_states WHERE learner = ? AND state = 'archived'",
+                (learner,),
+            ).fetchall()
+        return {r[0] for r in rows}
 
     # ── utility ─────────────────────────────────────────────────────────
 
