@@ -137,14 +137,34 @@ async function renderWeb() {
         return;
     }
     STATE.graph = payload;
-    initThree(canvas);
-    buildGraphScene(payload);
-    animateWeb();
+    try {
+        initThree(canvas);
+        buildGraphScene(payload);
+        animateWeb();
+    } catch (e) {
+        // Most commonly: no WebGL context at all (VMs, locked-down browsers).
+        // three.js throws out of the WebGLRenderer constructor, and without
+        // this catch the module dies and the page shows an eternal blank
+        // canvas instead of the explanation the user can act on.
+        console.error("knowledge web failed to initialise:", e);
+        showWebError(
+            String(e && e.message ? e.message : e) +
+            " — the canvas could not start. This browser or machine has no working WebGL."
+        );
+        return;
+    }
     // Exposed for apex/tests/check_ui.py to assert on the live scene.
+    // nodePoint(i) reads live sim coordinates at call time — a boot-time
+    // snapshot would go stale as the force simulation keeps moving nodes.
     window.__apexWeb = {
         nodeCount: STATE.simNodes.length,
         edgeCount: STATE.simLinks.length,
         threeRevision: THREE.REVISION,
+        nodePoint(i) {
+            const n = STATE.simNodes[i];
+            return n ? new THREE.Vector3(n.x, n.y, n.z) : null;
+        },
+        camera: STATE.camera,
     };
 }
 
@@ -367,6 +387,12 @@ function onPointerMove(event) {
 }
 
 function onCanvasClick(event) {
+    // Derive NDC coords from the event itself: a pointermove does not always
+    // precede a click (programmatic clicks, some touch taps), and relying on
+    // the stale hover position makes the raycast miss.
+    const rect = event.target.getBoundingClientRect();
+    STATE.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    STATE.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
     STATE.raycaster.setFromCamera(STATE.pointer, STATE.camera);
     const meshes = STATE.nodeMeshes.filter((m) => m.isMesh);
     const hits = STATE.raycaster.intersectObjects(meshes, false);

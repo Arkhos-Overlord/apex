@@ -65,7 +65,22 @@ def main() -> int:
     problems: list[str] = []
     try:
         with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=not args.headed)
+            # GPU-less environments (containers, VMs) need the software
+            # GL stack; --in-process-gpu keeps the GPU process from dying
+            # with "BindToCurrentSequence failed" inside a sandboxed
+            # container, and --no-sandbox is required when running as root.
+            browser = pw.chromium.launch(
+                headless=not args.headed,
+                args=[
+                    "--enable-unsafe-swiftshader",
+                    "--use-gl=angle",
+                    "--use-angle=swiftshader",
+                    "--no-sandbox",
+                    "--in-process-gpu",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu-sandbox",
+                ],
+            )
             page = browser.new_page(viewport={"width": 1440, "height": 900})
             errors: list[str] = []
             page.on("console", lambda m: errors.append(f"{m.type}: {m.text}")
@@ -97,11 +112,30 @@ def main() -> int:
             )
 
             # Click a node and confirm the detail panel populates.
+            # Project the first node's 3D position to screen coordinates and
+            # click exactly there — clicking the canvas centre is a coin flip
+            # after the force simulation spreads the web.
             detail_before = page.evaluate("() => document.querySelector('#web-detail').innerText")
             if rendered["nodeCount"] > 0:
-                page.evaluate(
-                    "() => { const canvas = document.getElementById('web-canvas');"
-                    "canvas.dispatchEvent(new MouseEvent('click', {clientX: canvas.getBoundingClientRect().width/2, clientY: canvas.getBoundingClientRect().height/2})); }"
+                clicked = page.evaluate(
+                    """() => {
+                        const web = window.__apexWeb;
+                        const canvas = document.getElementById('web-canvas');
+                        const rect = canvas.getBoundingClientRect();
+                        for (let i = 0; i < web.nodeCount; i++) {
+                            const v = web.nodePoint(i);
+                            if (!v) continue;
+                            v.project(web.camera);
+                            const x = rect.left + (v.x + 1) / 2 * rect.width;
+                            const y = rect.top + (-v.y + 1) / 2 * rect.height;
+                            if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) continue;
+                            // clientX/Y are viewport-absolute, matching
+                            // getBoundingClientRect()'s convention in web.js.
+                            canvas.dispatchEvent(new MouseEvent('click', { clientX: x, clientY: y }));
+                            return { x, y, i };
+                        }
+                        return null;
+                    }"""
                 )
                 time.sleep(0.8)
             detail_after = page.evaluate("() => document.querySelector('#web-detail').innerText")
